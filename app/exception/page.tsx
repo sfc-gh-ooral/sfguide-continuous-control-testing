@@ -1,129 +1,140 @@
 'use client';
 
-// Exception detail: the evidence row, the control logic that found it, the feed-quality results
-// for that month, and an AI explanation with a suggested disposition for a person to accept or change.
+// Exception detail: the evidence row, the control logic as run, the wire feed's data-quality
+// measurements, an AI explanation with a suggested disposition, and the reviewer's decision.
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
-import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { DispositionForm } from '@/components/DispositionForm';
-import { Reasoning } from '@/components/Reasoning';
-import { ErrorBox, Tag } from '@/components/Status';
-import { Card, Markdown, PoweredBy, SampleAiBadge, SourceBadge, Thinking } from '@/components/ui';
+import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { AiCard } from '@/components/AiPanel';
+import { useCoverage } from '@/components/Shell';
+import { ChartTip, Empty, ErrorState, PageSkeleton, Pill, PoweredBy, Severity, Sheet, Source, SqlBlock, Stamp, dispositionTone, usd } from '@/components/ui';
 import { useAsync } from '@/components/useAsync';
 import { monthLabel } from '@/lib/build';
 import { data } from '@/lib/client';
-import type { AiResult } from '@/lib/types';
+import { DISPOSITIONS, type AiResult, type Disposition } from '@/lib/types';
 
-const fmt = (k: string, v: unknown) => v === null || v === undefined ? '—'
-  : typeof v === 'number' && k.endsWith('_usd') ? v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
-  : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v);
+const fmt = (k: string, v: unknown) => v === null || v === undefined ? <span className="text-pen font-semibold">null</span>
+  : typeof v === 'boolean' ? <span className={v ? 'text-tick' : 'text-pen font-semibold'}>{String(v)}</span>
+  : k.endsWith('_usd') ? usd(v) : String(v);
 
-function Detail() {
-  const id = useSearchParams().get('id') ?? '';
-  const [reload, setReload] = useState(0);
-  const [ai, setAi] = useState<AiResult>();
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState<string>();
-  const [saved, setSaved] = useState<string>();
-  const { data: d, error, loading } = useAsync(() => data.exception(id), [id, reload]);
-  if (error) return <ErrorBox error={error} />;
-  if (loading) return <Thinking label="Loading exception" />;
-  if (!d) return <Card><p className="text-sm">Exception not found. <Link className="underline" href="/queue">Back to the queue</Link></p></Card>;
-  const { exception: e, control: c, run } = d;
-
-  const explain = async () => {
-    setAiBusy(true); setAiError(undefined); setAi(undefined);
-    try { setAi(await data.explain(e.exception_id)); } catch (err) { setAiError(String((err as Error).message)); } finally { setAiBusy(false); }
-  };
-
+function Decide({ id, suggestion, onDone }: { id: string; suggestion?: Disposition; onDone: (d: Disposition, note: string) => void }) {
+  const [d, setD] = useState<Disposition | undefined>(suggestion);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string>();
   return (
-    <div className="space-y-5 stagger">
-      <div>
-        <Link href="/queue" className="text-xs underline inline-flex items-center gap-1 muted"><ArrowLeft className="w-3 h-3" aria-hidden />Exception queue</Link>
-        <div className="flex items-start justify-between gap-3 flex-wrap mt-1">
-          <div>
-            <h1 className="page-title">{c.control_id} · {e.record_id}</h1>
-            <p className="text-sm text-2 mt-1">{c.control_name} · {monthLabel(e.period_start)} · owner {c.owner_name} ({c.team})</p>
-          </div>
-          <div className="flex gap-2 flex-wrap items-center">
-            <Tag tone={e.severity === 'High' ? 'bad' : 'warn'}>{e.severity}</Tag>
-            {e.disposition ? <Tag tone="good">{e.disposition}</Tag> : <Tag>Open</Tag>}
-            <SourceBadge p={d} />
-          </div>
-        </div>
+    <div className="space-y-2.5">
+      <div className="flex gap-1.5 flex-wrap" role="radiogroup" aria-label="Disposition">
+        {DISPOSITIONS.map((x) => (
+          <button key={x} role="radio" aria-checked={d === x} onClick={() => setD(x)}
+            className={`px-2.5 py-1.5 rounded-md text-[12.5px] font-semibold border transition-colors ${d === x ? `bg-${dispositionTone(x)} text-on-ink border-transparent` : 'border-rule hover:border-ink'}`}>
+            {x}{suggestion === x && <span className="font-normal opacity-80"> · AI suggestion</span>}</button>
+        ))}
       </div>
-
-      <div className="grid lg:grid-cols-2 gap-4">
-        <Card title="Evidence row">
-          <table className="data-table"><tbody>
-            {Object.entries(e.detail).map(([k, v]) => (
-              <tr key={k}><td className="text-xs muted w-1/2">{k.replace(/_/g, ' ')}</td><td className="text-sm tabular" style={k === 'approver_2' && v === null ? { color: 'var(--negative)', fontWeight: 600 } : undefined}>{fmt(k, v)}</td></tr>
-            ))}
-          </tbody></table>
-          <p className="text-xs muted mt-2">One of {d.clusterSize} exceptions in cluster <strong>{e.cluster_key}</strong> for this run.</p>
-        </Card>
-
-        <Card title="AI explanation" right={ai?.source === 'mock' ? <SampleAiBadge /> : ai ? <SourceBadge p={ai} /> : <PoweredBy>AI_COMPLETE</PoweredBy>}>
-          {!ai && !aiBusy && (
-            <div>
-              <p className="text-sm text-2 mb-3">Get a plain-language explanation and a suggested disposition. You decide.</p>
-              <button className="btn btn-ai" onClick={explain}><Sparkles className="w-4 h-4" aria-hidden />Explain this exception</button>
-            </div>
-          )}
-          {aiBusy && <Reasoning kind="explain" />}
-          {aiError && <p role="alert" className="text-sm" style={{ color: 'var(--negative)' }}>{aiError}</p>}
-          {ai && (
-            <div className="ai-panel">
-              <div className="prose-ai text-sm"><Markdown text={ai.text} /></div>
-              {ai.suggestion && <p className="text-sm mt-2">Suggested disposition: <Tag tone={ai.suggestion === 'True issue' ? 'bad' : ai.suggestion === 'Data issue' ? 'warn' : 'info'}>{ai.suggestion}</Tag></p>}
-              <p className="text-[11px] muted mt-2">AI suggestion{ai.model ? ` from ${ai.model}` : ''}. A reviewer must confirm the disposition.</p>
-            </div>
-          )}
-        </Card>
+      <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} maxLength={500} aria-label="Reviewer note (required)"
+        placeholder="Reviewer note (required). For example: confirmed against the payments audit log; feed reload requested."
+        className="w-full rounded-md border border-rule bg-sheet px-3 py-2 text-[13px] focus:border-ink outline-none" />
+      <div className="flex items-center gap-2">
+        <button className="btn btn-ink" disabled={!d || !note.trim() || busy} onClick={async () => {
+          setBusy(true); setErr(undefined);
+          try { await data.dispose([id], d!, note.trim()); onDone(d!, note.trim()); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+        }}>{busy ? 'Recording…' : 'Record disposition'}</button>
+        <span className="text-[11.5px] text-muted">A person decides. The AI suggestion is only pre-selected.</span>
       </div>
-
-      {!e.disposition && (
-        <Card title="Disposition">
-          {saved && <p className="text-sm mb-2" role="status" style={{ color: 'var(--positive)' }}>{saved}</p>}
-          <DispositionForm key={ai?.suggestion ?? 'none'} ids={[e.exception_id]} initial={ai?.suggestion} onDone={(n) => { setSaved(`Saved ${n} disposition.`); setReload((r) => r + 1); }} />
-        </Card>
-      )}
-      {e.disposition && (
-        <Card title="Disposition">
-          <p className="text-sm"><strong>{e.disposition}</strong> by {e.disposed_by}{e.disposed_ts ? ` on ${new Date(e.disposed_ts).toLocaleString()}` : ''}</p>
-          <p className="text-sm text-2 mt-1">{e.disposition_note}</p>
-        </Card>
-      )}
-
-      {d.feed.length > 0 && (
-        <Card title={`Wire feed quality, ${monthLabel(e.period_start)}`} right={<PoweredBy>Data metric functions</PoweredBy>}>
-          <p className="text-xs text-2 mb-2">Percent of wires over $250,000 that arrived with no second approver, per feed batch. Measured by the custom data metric function APPROVER_2_NULL_PCT.</p>
-          <div className="h-44" role="img" aria-label={`Bar chart of approver_2 null percent by feed batch. ${d.feed.filter((f) => f.is_anomaly).map((f) => `${f.feed_batch_id} is ${f.metric_value}%`).join(', ') || 'No anomalies'}.`}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={d.feed} margin={{ left: -18, right: 8 }}>
-                <XAxis dataKey="feed_batch_id" tick={{ fontSize: 10, fill: 'var(--muted)' }} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} unit="%" />
-                <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-                <Bar dataKey="metric_value" name="Null %" isAnimationActive={false}>
-                  {d.feed.map((f) => <Cell key={f.feed_batch_id} fill={f.is_anomaly ? 'var(--warning)' : 'var(--chart-1)'} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-      )}
-
-      <Card title="Control logic" right={run && <span className="text-[11px] muted">Query ID {run.query_id}</span>}>
-        <p className="text-xs text-2 mb-2">Runs monthly over the full population. The two bind variables are the first and last day of the month.</p>
-        <pre className="text-xs rounded-lg p-3 overflow-x-auto whitespace-pre" style={{ background: 'var(--surface-2)' }}>{c.exception_sql}</pre>
-        {run && <p className="text-xs muted mt-2">Run {run.run_id}: {run.population_count.toLocaleString()} records tested, {run.exception_count} exceptions, {new Date(run.run_ts).toLocaleString()}.</p>}
-      </Card>
+      {err && <p role="alert" className="text-[12px] text-pen">{err}</p>}
     </div>
   );
 }
 
-export default function ExceptionPage() {
-  return <Suspense fallback={<Thinking label="Loading exception" />}><Detail /></Suspense>;
+function Inner() {
+  const id = useSearchParams().get('id') ?? '';
+  const { reload: reloadCoverage } = useCoverage();
+  const x = useAsync(() => data.exception(id), [id]);
+  const [ai, setAi] = useState<AiResult>(); const [busy, setBusy] = useState(false); const [aiErr, setAiErr] = useState<string>();
+  const [decided, setDecided] = useState<{ d: Disposition; note: string }>();
+  if (x.error) return <ErrorState error={x.error} retry={x.reload} />;
+  if (x.loading) return <PageSkeleton />;
+  if (!x.data) return <Empty title="Exception not found"><Link className="underline" href="/queue">Back to the queue</Link></Empty>;
+  const { exception: e, control: c, run, feed, clusterSize } = x.data;
+  const d = e.detail as Record<string, unknown>;
+  const disposition = decided?.d ?? (e.disposition as Disposition | null | undefined);
+  const explain = async () => { setBusy(true); setAiErr(undefined); try { setAi(await data.explain(e.exception_id)); } catch (err) { setAiErr((err as Error).message); } finally { setBusy(false); } };
+  const wire = c.source_table === 'SRC.WIRE_PAYMENTS';
+  const feedBars = feed.map((f) => ({ batch: f.feed_batch_id.slice(-2), id: f.feed_batch_id, 'Null %': f.metric_value, anomaly: f.is_anomaly, base: f.baseline_value }));
+  const steps = [`Reading evidence row ${e.record_id}…`, `Retrieving the ${c.control_id} test procedure…`, wire ? `Checking ${feed.length} feed batches for ${monthLabel(e.period_start)}…` : 'Checking source data quality…', 'Drafting explanation and disposition…'];
+
+  return (
+    <div className="space-y-5">
+      <div className="rise">
+        <Link href="/queue" className="inline-flex items-center gap-1 text-[12.5px] text-muted hover:text-ink"><ArrowLeft className="w-3.5 h-3.5" aria-hidden />Exception queue</Link>
+        <div className="flex items-end justify-between gap-3 flex-wrap mt-1">
+          <div className="min-w-0">
+            <div className="eyebrow">{c.control_id} · {c.control_name}</div>
+            <h1 className="cond text-[26px] leading-tight mt-0.5 break-words">Exception <span className="font-mono">{e.record_id}</span></h1>
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap text-[12.5px]">
+              <Severity s={e.severity} /><Pill>{monthLabel(e.period_start)}</Pill><Pill>Cluster {e.cluster_key} · {clusterSize}</Pill>
+              {disposition ? <Stamp d={disposition} /> : <Pill tone="pen">Open</Pill>}
+            </div>
+          </div>
+          <Source p={x.data} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+        <div className="xl:col-span-3 space-y-4">
+          <Sheet eyebrow="Evidence" title="The record that failed" className="rise">
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 text-[13px]">
+              {Object.entries(d).map(([k, v]) => (
+                <div key={k} className="flex justify-between gap-3 py-1.5 border-b border-rule min-w-0">
+                  <dt className="text-muted font-mono text-[12px]">{k}</dt><dd className="num text-right break-all">{fmt(k, v)}</dd>
+                </div>
+              ))}
+            </dl>
+          </Sheet>
+          {wire && feed.length > 0 && (
+            <Sheet eyebrow={`Wire feed · ${monthLabel(e.period_start)}`} title="Second approver missing, by feed batch" right={<PoweredBy>Data metric functions</PoweredBy>} className="rise">
+              <div className="h-[200px]">
+                <ResponsiveContainer>
+                  <BarChart data={feedBars} margin={{ left: -12, right: 8 }}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="id" tickLine={false} axisLine={false} tickFormatter={(v: string) => `…${v.slice(-6)}`} />
+                    <YAxis unit="%" tickLine={false} axisLine={false} />
+                    <Tooltip content={<ChartTip fmt={(v) => `${v}%`} />} />
+                    {feedBars[0]?.base !== null && <ReferenceLine y={Number(feedBars[0]?.base)} stroke="var(--muted)" strokeDasharray="4 3" label={{ value: 'baseline', position: 'insideTopRight', fontSize: 11 }} />}
+                    <Bar dataKey="Null %" radius={[3, 3, 0, 0]} barSize={36}>{feedBars.map((b) => <Cell key={b.id} fill={b.anomaly ? 'var(--feed)' : 'var(--muted)'} />)}</Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="text-[12px] text-muted">A custom data metric function, <span className="font-mono">APPROVER_2_NULL_PCT</span>, measures each batch when the test runs. A batch more than five times its trailing baseline is flagged.</p>
+            </Sheet>
+          )}
+          <Sheet eyebrow="Control logic" title="The test as it ran" right={run && <span className="text-[11px] text-muted font-mono break-all">query {run.query_id}</span>} className="rise">
+            {c.exception_sql ? <SqlBlock sql={c.exception_sql.trim()} className="max-h-[300px]" /> : <p className="text-muted">Manual control; no automated test.</p>}
+            <p className="text-[11.5px] text-muted mt-2">Run {run ? new Date(run.run_ts).toLocaleString() : ''} by a scheduled stored procedure over {run?.population_count.toLocaleString()} records. Bind variables are the period start and end.</p>
+          </Sheet>
+        </div>
+
+        <div className="xl:col-span-2 space-y-4">
+          <AiCard title="Explain this exception" busy={busy} result={ai} text={ai?.text} steps={steps} powered={<PoweredBy>Cortex AI_COMPLETE</PoweredBy>}
+            sources={[{ label: `Procedure P-${c.control_id}`, detail: 'CTRL.CONTROL_PROCEDURES' }, { label: `Evidence row ${e.record_id}` }, ...(wire ? [{ label: `FEED_QUALITY ${monthLabel(e.period_start)}` }] : [])]}
+            idle={<div className="space-y-3"><p className="text-[13px] text-muted">Reads the evidence row, the control procedure and the month&apos;s feed quality, then explains why the record failed and suggests a disposition.</p>
+              <button className="btn btn-ink" onClick={explain}><Sparkles className="w-4 h-4" aria-hidden />Explain</button>
+              {aiErr && <p role="alert" className="text-[12px] text-pen">{aiErr}</p>}</div>}
+            footer={ai?.suggestion && <div className="flex items-center gap-2 text-[13px]">Suggested disposition <Stamp d={ai.suggestion} /></div>} />
+          <Sheet eyebrow="Human in the loop" title={disposition ? 'Disposition recorded' : 'Your decision'} className="rise">
+            {disposition ? (
+              <div className="space-y-2 text-[13px]">
+                <div className="flex items-center gap-2"><Stamp d={disposition} /><span className="text-muted">by {decided ? 'you' : e.disposed_by}</span></div>
+                <p className="border-l-2 border-rule pl-3">{decided?.note ?? e.disposition_note}</p>
+                <Link className="btn btn-sm" href={`/evidence?period=${e.period_start}`}>See it in the evidence pack</Link>
+              </div>
+            ) : <Decide key={ai?.suggestion ?? 'none'} id={e.exception_id} suggestion={ai?.suggestion} onDone={(dd, note) => { setDecided({ d: dd, note }); reloadCoverage(); }} />}
+          </Sheet>
+        </div>
+      </div>
+    </div>
+  );
 }
+
+export default function ExceptionPage() { return <Suspense fallback={<PageSkeleton />}><Inner /></Suspense>; }

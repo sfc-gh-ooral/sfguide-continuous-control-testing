@@ -23,6 +23,8 @@ export function coverage(s: Snapshot, openByRun?: Map<string, number>): Omit<Cov
   const auto = controls.filter((c) => c.automated);
   return {
     months, controls,
+    anomalies: s.feedQuality.filter((f) => f.is_anomaly && f.metric === 'APPROVER_2_NULL_PCT')
+      .map(({ period_start, feed_batch_id, metric_value, baseline_value }) => ({ period_start, feed_batch_id, metric_value, baseline_value })),
     kpis: {
       automated: auto.length, total: controls.length, lastPeriod,
       tested: auto.reduce((a, c) => a + (c.last?.population_count ?? 0), 0),

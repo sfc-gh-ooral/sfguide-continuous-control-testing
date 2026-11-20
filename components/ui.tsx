@@ -1,105 +1,183 @@
 'use client';
 
-// Small shared UI pieces: badges, cards, KPI tiles, and a tiny markdown renderer for AI text.
-import { Bot, Database, Sparkles, Timer } from 'lucide-react';
-import type { ReactNode } from 'react';
-import type { Provenance } from '@/lib/types';
+// Tallyward UI kit. Tokens live in app/globals.css; see docs/DESIGN.md.
+import { AlertTriangle, Inbox, X, Zap } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Line, LineChart, ResponsiveContainer } from 'recharts';
+import type { Disposition, Provenance } from '@/lib/types';
 
-export const money = (x: number): string => {
-  if (x < 0) return `−${money(-x)}`;
-  return x >= 1e9 ? `$${(x / 1e9).toFixed(2)}B` : x >= 1e6 ? `$${(x / 1e6).toFixed(2)}M` : x >= 1e3 ? `$${Math.round(x / 1e3)}K` : `$${Math.round(x)}`;
-};
-
-export function Card({ title, right, children, className = '' }: { title?: ReactNode; right?: ReactNode; children: ReactNode; className?: string }) {
+export function Logo({ size = 24 }: { size?: number }) {
   return (
-    <section className={`card p-4 ${className}`}>
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="1" y="1" width="22" height="22" rx="5" fill="var(--ink)" />
+      <path d="M7 6v12M11 6v12M15 6v12" stroke="var(--on-ink)" strokeWidth="1.6" strokeLinecap="round" opacity=".55" />
+      <path d="M5.5 13.2l3.6 3.4L18.8 7" fill="none" stroke="#E4572E" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function Sheet({ title, eyebrow, right, children, className = '', pad = true }: {
+  title?: ReactNode; eyebrow?: ReactNode; right?: ReactNode; children: ReactNode; className?: string; pad?: boolean;
+}) {
+  return (
+    <section className={`sheet ${className}`}>
       {(title || right) && (
-        <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
-          {title && <h2 className="text-sm font-semibold">{title}</h2>}
+        <header className="flex items-start justify-between gap-3 flex-wrap px-4 pt-3.5 pb-2">
+          <div className="min-w-0">
+            {eyebrow && <div className="eyebrow mb-0.5">{eyebrow}</div>}
+            {title && <h2 className="cond text-[15px] leading-tight">{title}</h2>}
+          </div>
           {right && <div className="flex items-center gap-2 flex-wrap">{right}</div>}
-        </div>
+        </header>
       )}
-      {children}
+      <div className={pad ? 'px-4 pb-4' : ''}>{children}</div>
     </section>
   );
 }
 
-export function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
+/** Counts up once on first render (instant with reduced motion). */
+export function Counter({ value, format = (n) => Math.round(n).toLocaleString('en-US') }: { value: number; format?: (n: number) => string }) {
+  const [shown, setShown] = useState(value);
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    done.current = true;
+    const t0 = performance.now(); let raf = 0;
+    const step = (t: number) => { const k = Math.min(1, (t - t0) / 700); setShown(value * (1 - Math.pow(1 - k, 3))); if (k < 1) raf = requestAnimationFrame(step); };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <span className="num">{format(shown)}</span>;
+}
+
+export function Kpi({ label, value, format, note, delta, deltaTone = 'muted', spark, sparkColor = 'var(--ink)', icon }: {
+  label: string; value: number; format?: (n: number) => string; note?: ReactNode; delta?: ReactNode;
+  deltaTone?: 'pen' | 'tick' | 'feed' | 'muted'; spark?: (number | null)[]; sparkColor?: string; icon?: ReactNode;
+}) {
   return (
-    <div className="card kpi card-hover p-4">
-      <div className="text-[11px] uppercase tracking-wider muted mb-1 font-semibold">{label}</div>
-      <div className="kpi-value text-[26px] font-bold tabular tracking-tight">{value}</div>
-      {sub && <div className="text-xs muted mt-1">{sub}</div>}
+    <div className="sheet p-4 relative overflow-hidden group transition-transform hover:-translate-y-0.5">
+      <div className="flex items-center justify-between gap-2"><span className="eyebrow">{label}</span><span className="text-muted">{icon}</span></div>
+      <div className="flex items-end justify-between gap-3 mt-1.5">
+        <div className="cond text-[30px] leading-none"><Counter value={value} format={format} /></div>
+        {spark && (
+          <div className="w-24 h-9 shrink-0" aria-hidden>
+            <ResponsiveContainer><LineChart data={spark.map((v, i) => ({ i, v }))}><Line dataKey="v" stroke={sparkColor} strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls /></LineChart></ResponsiveContainer>
+          </div>
+        )}
+      </div>
+      <div className="mt-2 text-[12px] text-muted flex items-center gap-2 flex-wrap">
+        {delta && <span className={`font-semibold text-${deltaTone}`}>{delta}</span>}{note}
+      </div>
     </div>
   );
 }
 
-function Pill({ children, color, bg, title }: { children: ReactNode; color: string; bg: string; title?: string }) {
+type Tone = 'pen' | 'tick' | 'feed' | 'waive' | 'ai' | 'muted';
+export function Pill({ tone = 'muted', children, title }: { tone?: Tone; children: ReactNode; title?: string }) {
+  const bg = tone === 'muted' ? 'bg-sheet-2 text-muted border border-rule' : `bg-${tone}-soft text-${tone}`;
+  return <span className={`pill ${bg}`} title={title}>{children}</span>;
+}
+// Tailwind needs the literal class names to generate them.
+// bg-pen-soft text-pen bg-tick-soft text-tick bg-feed-soft text-feed bg-waive-soft text-waive bg-ai-soft text-ai
+
+export const dispositionTone = (d?: string | null): Tone => d === 'True issue' ? 'pen' : d === 'Data issue' ? 'feed' : d === 'Accepted risk' ? 'waive' : 'muted';
+export function Stamp({ d }: { d: Disposition | string }) {
+  return <span className={`stamp text-${dispositionTone(d)}`}>{d}</span>;
+}
+export function Severity({ s }: { s: string }) {
+  return <Pill tone={s === 'High' ? 'pen' : 'waive'}><span className="w-1.5 h-1.5 rounded-full bg-current" />{s}</Pill>;
+}
+
+export function PoweredBy({ children, preview }: { children: ReactNode; preview?: boolean }) {
   return (
-    <span title={title} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap" style={{ color, background: bg }}>
-      {children}
+    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted border border-rule rounded-full px-2 py-0.5 bg-sheet whitespace-nowrap">
+      <Zap className="w-3 h-3 text-pen" aria-hidden />Powered by {children}{preview && <span className="text-waive font-semibold"> · Preview</span>}
     </span>
   );
 }
 
-/** Names the Snowflake capability behind a component. */
-export function PoweredBy({ children }: { children: ReactNode }) {
-  return <Pill color="var(--accent)" bg="var(--accent-soft)"><Sparkles className="w-3 h-3" aria-hidden />Powered by {children}</Pill>;
-}
-
-export function SampleAiBadge() {
-  return <Pill color="var(--sample)" bg="var(--sample-soft)" title="Scripted answer in no-account mode, not live Cortex output"><Bot className="w-3 h-3" aria-hidden />Sample AI response</Pill>;
-}
-
-/** Shows where data came from; latency only when measured in live mode. */
-export function SourceBadge({ p }: { p?: Provenance }) {
+export function Source({ p }: { p?: Provenance }) {
   if (!p) return null;
-  if (p.source === 'mock') return <Pill color="var(--muted)" bg="var(--surface-2)"><Database className="w-3 h-3" aria-hidden />Sample data</Pill>;
+  return p.source === 'snowflake'
+    ? <span className="text-[11px] text-muted num" title={`Role ${p.role}`}>Live · {p.latencyMs?.toLocaleString()} ms</span>
+    : <span className="text-[11px] text-muted">Sample data</span>;
+}
+
+export function Skeleton({ className = '' }: { className?: string }) { return <div className={`skel ${className}`} aria-hidden />; }
+export function PageSkeleton() {
   return (
-    <Pill color="var(--text-2)" bg="var(--surface-2)" title="Measured round trip from the app server to Snowflake">
-      <Timer className="w-3 h-3" aria-hidden />Live · {p.role}{p.latencyMs !== undefined ? ` · ${p.latencyMs.toLocaleString()} ms` : ''}
-    </Pill>
+    <div className="space-y-4" aria-busy="true" aria-label="Loading">
+      <Skeleton className="h-8 w-72" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28" />)}</div>
+      <Skeleton className="h-72" />
+    </div>
   );
 }
 
-export function Thinking({ label = 'Thinking' }: { label?: string }) {
-  return <div className="thinking text-xs muted flex items-center gap-2" role="status"><span /><span /><span />{label}…</div>;
+export function ErrorState({ error, retry }: { error: string; retry?: () => void }) {
+  return (
+    <div role="alert" className="sheet p-5 border-pen/40 flex gap-3 items-start">
+      <AlertTriangle className="w-5 h-5 text-pen shrink-0 mt-0.5" aria-hidden />
+      <div className="min-w-0">
+        <div className="cond text-[15px]">Snowflake returned an error</div>
+        <p className="text-[13px] text-muted mt-1 break-words">{error}</p>
+        <p className="text-[12px] text-muted mt-2">Live mode never falls back to sample data. Check the connection in <code>.env.local</code>, or switch to Sample.</p>
+        {retry && <button className="btn btn-sm mt-3" onClick={retry}>Try again</button>}
+      </div>
+    </div>
+  );
 }
 
-// Minimal markdown: headings by bold, lists, tables, bold/italic. Text is escaped by React.
-function inline(s: string, key: number): ReactNode {
-  const parts = s.split(/(\*\*[^*]+\*\*|(?<![\w])_[^_\s][^_]*_(?![\w])|\*[^*\s][^*]*\*)/g).filter(Boolean);
-  return <span key={key}>{parts.map((p, i) =>
-    p.startsWith('**') ? <strong key={i}>{p.slice(2, -2)}</strong>
-      : (p.startsWith('_') && p.endsWith('_')) || (p.startsWith('*') && p.endsWith('*')) ? <em key={i}>{p.slice(1, -1)}</em>
-        : p)}</span>;
+export function Empty({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="text-center py-10 px-4">
+      <Inbox className="w-7 h-7 mx-auto text-muted" aria-hidden />
+      <div className="cond text-[15px] mt-2">{title}</div>
+      {children && <p className="text-[13px] text-muted mt-1 max-w-sm mx-auto">{children}</p>}
+    </div>
+  );
 }
-export function Markdown({ text }: { text: string }) {
-  const lines = text.replace(/\r/g, '').split('\n');
-  const out: ReactNode[] = [];
-  let i = 0, k = 0;
-  while (i < lines.length) {
-    const l = lines[i];
-    if (l.trim().startsWith('|')) {
-      const rows: string[][] = [];
-      while (i < lines.length && lines[i].trim().startsWith('|')) { rows.push(lines[i].split('|').slice(1, -1).map((c) => c.trim())); i++; }
-      const body = rows.filter((r) => !r.every((c) => /^:?-{2,}:?$/.test(c)));
-      out.push(<table key={k++}><thead><tr>{body[0].map((c, j) => <th key={j}>{inline(c, j)}</th>)}</tr></thead>
-        <tbody>{body.slice(1).map((r, ri) => <tr key={ri}>{r.map((c, j) => <td key={j}>{inline(c, j)}</td>)}</tr>)}</tbody></table>);
-      continue;
-    }
-    if (/^\s*([-*]|\d+\.)\s+/.test(l)) {
-      const ordered = /^\s*\d+\./.test(l);
-      const items: string[] = [];
-      while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*([-*]|\d+\.)\s+/, '')); i++; }
-      const li = items.map((t, j) => <li key={j}>{inline(t, j)}</li>);
-      out.push(ordered ? <ol key={k++}>{li}</ol> : <ul key={k++}>{li}</ul>);
-      continue;
-    }
-    if (/^\s*([-*_])\1{2,}\s*$/.test(l)) { i++; continue; } // horizontal rule
-    if (/^#{1,4}\s/.test(l)) { out.push(<p key={k++}><strong>{l.replace(/^#+\s/, '')}</strong></p>); i++; continue; }
-    if (l.trim()) out.push(<p key={k++}>{inline(l, 0)}</p>);
-    i++;
-  }
-  return <div className="prose-ai text-sm leading-relaxed">{out}</div>;
+
+export function Drawer({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; wide?: boolean }) {
+  useEffect(() => {
+    if (!open) return;
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
+  }, [open, onClose]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+      <button className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" onClick={onClose} aria-label="Close panel" />
+      <div className={`drawer relative h-full w-full ${wide ? 'max-w-3xl' : 'max-w-xl'} bg-paper border-l border-rule shadow-2xl flex flex-col`}>
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-rule bg-sheet">
+          <div className="min-w-0 cond text-[16px] truncate">{title}</div>
+          <button className="btn btn-sm" onClick={onClose} aria-label="Close"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">{children}</div>
+      </div>
+    </div>
+  );
 }
+
+/** Light SQL highlighting for display only (keywords, strings, numbers, comments). */
+const KW = /\b(SELECT|FROM|WHERE|JOIN|USING|AND|OR|NOT|IS|NULL|IN|AS|ON|BETWEEN|COUNT|IFF|DATEADD|DATEDIFF|OBJECT_CONSTRUCT_KEEP_NULL|AT|TIMESTAMP|DATE|GROUP|BY|ORDER|LIMIT|CASE|WHEN|THEN|ELSE|END|INSERT|INTO|UPDATE|SET|VALUES)\b/g;
+export function SqlBlock({ sql, className = '' }: { sql: string; className?: string }) {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const html = esc(sql).split(/('[^']*')/).map((part, i) => i % 2 ? `<span class="s">${part}</span>`
+    : part.replace(KW, '<span class="k">$1</span>').replace(/(\?|\b\d[\d,.]*\b)/g, '<span class="n">$1</span>')).join('');
+  return <pre className={`code ${className}`} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+export function ChartTip({ active, payload, label, fmt }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string; fmt?: (v: number) => string }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="sheet px-3 py-2 text-[12px]">
+      <div className="font-semibold mb-1">{label}</div>
+      {payload.map((p) => (
+        <div key={p.name} className="flex items-center gap-2"><span className="w-2 h-2 rounded-sm" style={{ background: p.color }} />{p.name}<span className="num ml-auto pl-3 font-semibold">{fmt ? fmt(p.value) : p.value?.toLocaleString()}</span></div>
+      ))}
+    </div>
+  );
+}
+
+export const usd = (n: unknown) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });

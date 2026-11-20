@@ -1,81 +1,117 @@
 'use client';
 
-// App frame: navigation, the Live/Sample switch, the hosted-example notice, and the disclaimer.
-import { Bot, FileCheck2, Gauge, ListChecks, Menu, ShieldCheck, X } from 'lucide-react';
+// Tallyward app shell: top bar with section tabs, role chip, environment switch and theme toggle;
+// the period ribbon (exceptions per tested month) under it; disclaimer footer.
+import { Moon, Sun, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ModeChip } from '@/components/ModeChip';
-import { HOSTED_EXAMPLE } from '@/lib/hosted';
+import { createContext, useContext, useSyncExternalStore, type ReactNode } from 'react';
+import { monthLabel } from '@/lib/build';
+import { data } from '@/lib/client';
+import type { Coverage } from '@/lib/types';
+import { ModeSwitch } from './ModeSwitch';
+import { Logo } from './ui';
+import { useAsync } from './useAsync';
 
-const NAV = [
-  { href: '/', label: 'Control coverage', icon: Gauge },
-  { href: '/queue', label: 'Exception queue', icon: ListChecks },
-  { href: '/triage', label: 'Triage assistant', icon: Bot },
-  { href: '/evidence', label: 'Evidence pack', icon: FileCheck2 },
+const TABS = [
+  { href: '/', label: 'Coverage' },
+  { href: '/queue', label: 'Exception queue' },
+  { href: '/triage', label: 'Triage' },
+  { href: '/evidence', label: 'Evidence pack' },
 ];
 
-export default function Shell({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const pathname = usePathname();
-  // Mobile drawer: Escape closes, focus moves into the drawer on open and back to the toggle on close.
-  const toggleRef = useRef<HTMLButtonElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
-  const wasOpen = useRef(false);
-  useEffect(() => {
-    if (open) closeRef.current?.focus();
-    else if (wasOpen.current) toggleRef.current?.focus();
-    wasOpen.current = open;
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
-  const active = (href: string) => (href === '/' ? pathname === '/' : pathname.startsWith(href) || (href === '/queue' && pathname.startsWith('/exception')));
+const CoverageCtx = createContext<{ coverage?: Coverage; error?: string; reload: () => void }>({ reload: () => {} });
+export const useCoverage = () => useContext(CoverageCtx);
 
+const themeListeners = new Set<() => void>();
+const subscribeTheme = (f: () => void) => { themeListeners.add(f); return () => { themeListeners.delete(f); }; };
+
+function ThemeToggle() {
+  const dark = useSyncExternalStore(subscribeTheme, () => document.documentElement.classList.contains('dark'), () => false);
+  const flip = () => { const d = !dark; document.documentElement.classList.toggle('dark', d); localStorage.setItem('tw-theme', d ? 'dark' : 'light'); themeListeners.forEach((f) => f()); };
   return (
-    <div className="min-h-screen flex">
-      <aside id="main-nav" className={`sidebar fixed inset-y-0 left-0 z-40 w-60 flex flex-col border-r md:translate-x-0 md:visible ${open ? 'translate-x-0 transition-transform' : '-translate-x-full invisible transition-[transform,visibility]'}`}
-        aria-label="Main navigation">
-        <div className="px-5 py-5 border-b flex items-center gap-3" style={{ borderColor: 'rgba(255,255,255,.08)' }}>
-          <div className="icon-tile w-9 h-9 rounded-xl flex items-center justify-center"><ShieldCheck className="w-4 h-4" aria-hidden /></div>
-          <div>
-            <div className="text-sm font-semibold leading-tight text-white">Continuous Control Testing</div>
-            <div className="text-[11px] muted">Northwind Financial · synthetic data</div>
-          </div>
-          <button ref={closeRef} className="md:hidden ml-auto btn !px-2" onClick={() => setOpen(false)} aria-label="Close menu"><X className="w-4 h-4" /></button>
-        </div>
-        <nav className="flex-1 px-3 py-3 space-y-1">
-          {NAV.map(({ href, label, icon: Icon }) => (
-            <Link key={href} href={href} onClick={() => setOpen(false)} aria-current={active(href) ? 'page' : undefined}
-              className="nav-link flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium no-underline">
-              <Icon className="w-4 h-4" aria-hidden />{label}
-            </Link>
-          ))}
-        </nav>
-        <div className="px-4 py-4 border-t text-[11px] muted leading-relaxed" style={{ borderColor: 'rgba(255,255,255,.08)' }}>
-          Synthetic data and illustrative logic. Not audit, legal, or compliance advice. AI suggestions need a person&apos;s approval.
-        </div>
-      </aside>
+    <button className="btn btn-sm !px-2" onClick={flip} aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}>
+      {dark ? <Sun className="w-4 h-4" aria-hidden /> : <Moon className="w-4 h-4" aria-hidden />}
+    </button>
+  );
+}
 
-      <div className="flex-1 md:ml-60 min-w-0">
-        {HOSTED_EXAMPLE && (
-          <div role="note" className="px-4 md:px-8 py-2 text-xs border-b" style={{ background: 'var(--sample-soft)', borderColor: 'var(--border)', color: 'var(--text-2)' }}>
-            <strong style={{ color: 'var(--text)' }}>Sample data mode.</strong> Runs entirely in your browser on synthetic data; no Snowflake account needed. AI answers are recorded samples, not live Cortex output.{' '}
-            <a href="https://github.com/sfc-gh-ooral/sfguide-continuous-control-testing" className="underline underline-offset-2">Run it in your own account</a>
-          </div>
-        )}
-        <header className="glass sticky top-0 z-30 flex items-center gap-3 px-4 md:px-8 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
-          <button ref={toggleRef} className="md:hidden btn !px-2" onClick={() => setOpen(true)} aria-label="Open menu" aria-expanded={open} aria-controls="main-nav"><Menu className="w-4 h-4" /></button>
-          <div className="min-w-0">
-            <div className="text-sm font-semibold truncate">Jordan Lindqvist</div>
-            <div className="text-xs muted truncate">Control testing lead, Operational Risk</div>
-          </div>
-          <div className="ml-auto"><ModeChip /></div>
-        </header>
-        <main key={pathname} className="fade-up px-4 md:px-8 py-6 max-w-[1400px]">{children}</main>
+function PeriodRibbon({ c }: { c?: Coverage }) {
+  const months = c?.months ?? [];
+  const totals = months.map((_, i) => c!.controls.reduce((a, x) => a + (x.trend[i] ?? 0), 0));
+  const max = Math.max(1, ...totals);
+  const spike = totals.findIndex((t, i) => i > 0 && t > 2 * totals[i - 1]);
+  return (
+    <div className="border-b border-rule bg-sheet/70 no-print">
+      <div className="max-w-[1320px] mx-auto px-4 lg:px-6 py-2 flex items-center gap-3">
+        <span className="eyebrow shrink-0 hidden sm:block">Exceptions by month</span>
+        <div className="flex-1 min-w-0 overflow-x-auto">
+          <ol className="flex gap-1 min-w-[560px]">
+            {months.length === 0 && Array.from({ length: 10 }, (_, i) => <li key={i} className="flex-1 h-9 skel" />)}
+            {months.map((m, i) => (
+              <li key={m} className="flex-1">
+                <Link href={`/queue?period=${m}`} className="group block rounded-md px-1.5 pt-1 pb-0.5 hover:bg-sheet-2 transition-colors"
+                  title={`${monthLabel(m)}: ${totals[i]} exceptions${i === spike ? ' (spike)' : ''}`}>
+                  <div className="h-7 flex items-end"><div className={`w-full rounded-sm transition-all ${i === spike ? 'bg-pen' : 'bg-ink/25 group-hover:bg-ink/50'}`} style={{ height: `${Math.max(14, (totals[i] / max) * 100)}%` }} /></div>
+                  <div className={`flex justify-between text-[10.5px] mt-0.5 ${i === spike ? 'text-pen font-semibold' : 'text-muted'}`}>
+                    <span>{monthLabel(m).slice(0, 3)}</span><span className="num">{totals[i]}</span>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ol>
+        </div>
       </div>
-      {open && <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={() => setOpen(false)} aria-hidden />}
     </div>
+  );
+}
+
+export default function Shell({ children }: { children: ReactNode }) {
+  const path = usePathname();
+  const cov = useAsync(() => data.coverage(), []);
+  const active = (h: string) => (h === '/' ? path === '/' : path.startsWith(h)) || (h === '/queue' && path.startsWith('/exception'));
+  return (
+    <CoverageCtx.Provider value={{ coverage: cov.data, error: cov.error, reload: cov.reload }}>
+      <div className="min-h-screen flex flex-col">
+        <header className="sticky top-0 z-40 bg-sheet border-b border-rule no-print">
+          <div className="max-w-[1320px] mx-auto px-4 lg:px-6 h-14 flex items-center gap-4">
+            <Link href="/" className="flex items-center gap-2 shrink-0" aria-label="Tallyward home">
+              <Logo />
+              <span className="leading-none"><span className="cond text-[17px] tracking-tight">Tallyward</span>
+                <span className="hidden md:block text-[10.5px] text-muted mt-0.5">Northwind Financial · 2nd line</span></span>
+            </Link>
+            <nav aria-label="Sections" className="hidden lg:flex items-center gap-1 ml-4">
+              {TABS.map((t) => (
+                <Link key={t.href} href={t.href} aria-current={active(t.href) ? 'page' : undefined}
+                  className={`relative px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors ${active(t.href) ? 'text-ink' : 'text-muted hover:text-ink hover:bg-sheet-2'}`}>
+                  {t.label}{active(t.href) && <span className="absolute left-3 right-3 -bottom-[11px] h-[2px] bg-pen rounded-full" />}
+                </Link>
+              ))}
+            </nav>
+            <div className="ml-auto flex items-center gap-2">
+              <span className="hidden md:inline-flex items-center gap-1.5 text-[12px] border border-rule rounded-full pl-1 pr-2.5 py-0.5">
+                <span className="w-5 h-5 rounded-full bg-sheet-2 grid place-items-center"><UserRound className="w-3 h-3" aria-hidden /></span>Control tester
+              </span>
+              <ModeSwitch />
+              <ThemeToggle />
+            </div>
+          </div>
+          <nav aria-label="Sections" className="lg:hidden flex gap-1 overflow-x-auto px-3 pb-2">
+            {TABS.map((t) => (
+              <Link key={t.href} href={t.href} aria-current={active(t.href) ? 'page' : undefined}
+                className={`shrink-0 px-3 py-1 rounded-full text-[12.5px] font-medium border ${active(t.href) ? 'bg-ink text-on-ink border-ink' : 'border-rule text-muted'}`}>{t.label}</Link>
+            ))}
+          </nav>
+        </header>
+        <PeriodRibbon c={cov.data} />
+        <main className="flex-1 w-full max-w-[1320px] mx-auto px-4 lg:px-6 py-6">{children}</main>
+        <footer className="border-t border-rule no-print">
+          <div className="max-w-[1320px] mx-auto px-4 lg:px-6 py-4 text-[11.5px] text-muted flex flex-wrap gap-x-4 gap-y-1">
+            <span>Tallyward and Northwind Financial are fictional. Synthetic data; illustrative logic. Not production software, and not audit, legal, regulatory or compliance advice.</span>
+            <span>Built on Snowflake · not an official Snowflake product.</span>
+          </div>
+        </footer>
+      </div>
+    </CoverageCtx.Provider>
   );
 }

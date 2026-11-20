@@ -1,238 +1,246 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="snowflake-source" content="cortex-agent-authored">
-<title>Continuous Control Testing: a Snowflake example</title>
-<meta name="description" content="Test entire populations instead of samples, triage exceptions with an AI assistant, and keep evidence for every run. A Snowflake example on synthetic data.">
-<script type="application/json" id="snowflake-report-metadata">
-{
-  "generated": "2026-11-12",
-  "intent": "GitHub Pages guide for the Continuous Control Testing: a Snowflake example",
-  "dataSources": [
-    { "type": "file", "path": "docs/images/*.png" },
-    { "type": "file", "path": "sql/setup.sql" }
-  ],
-  "sections": [
-    { "id": "problem", "title": "The problem", "producerNotes": "Static copy from the build brief" },
-    { "id": "walkthrough", "title": "Walkthrough", "dataSources": [{ "type": "file", "path": "docs/images/*.png" }], "producerNotes": "Screenshots of the running app in no-account mode; recapture when the UI changes" },
-    { "id": "how-it-works", "title": "How it works", "dataSources": [{ "type": "file", "path": "sql/setup.sql" }], "producerNotes": "Capabilities verified in live mode on 2026-11-12" },
-    { "id": "get-started", "title": "Get started", "producerNotes": "Mirrors README quick start and live steps" },
-    { "id": "limits", "title": "Limits and disclaimer", "producerNotes": "Mirrors README known limitations" }
-  ]
-}
-</script>
+<title>Tallyward · Continuous Control Testing on Snowflake (example)</title>
+<meta name="description" content="Test every record instead of a quarterly sample, tell data problems from control failures, triage exceptions with an AI assistant, and keep evidence for every run. A Snowflake example on synthetic data.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='1' y='1' width='22' height='22' rx='5' fill='%231B1F27'/%3E%3Cpath d='M5.5 13.2l3.6 3.4L18.8 7' fill='none' stroke='%23E4572E' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
-:root {
-  color-scheme: light dark;
-  --bg: light-dark(#f6f7fb, #0d1220);
-  --card: light-dark(#ffffff, #141b2d);
-  --card-2: light-dark(#f0f2f8, #1b2439);
-  --border: light-dark(#dde1ec, #2a3550);
-  --text: light-dark(#141a2e, #e8ecf6);
-  --text-2: light-dark(#4a5373, #aab3cc);
-  --muted: light-dark(#6b7493, #8590ad);
-  --accent: light-dark(#1a6fd1, #5aa7f5);
-  --accent-soft: light-dark(rgba(26,111,209,.1), rgba(90,167,245,.14));
-  --warn-soft: light-dark(#fff6e6, #2b2414);
-  --warn-border: light-dark(#f0c36d, #6b5420);
-}
+/* Tallyward tokens (docs/DESIGN.md). Fonts: IBM Plex, SIL Open Font License (fonts/OFL.txt). */
+@font-face { font-family: "Plex"; src: url(fonts/plex-sans.woff2) format("woff2"); font-weight: 400 600; font-display: swap; }
+@font-face { font-family: "Plex Cond"; src: url(fonts/plex-sans-cond-600.woff2) format("woff2"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Plex Mono"; src: url(fonts/plex-mono-400.woff2) format("woff2"); font-weight: 400; font-display: swap; }
+:root { --paper:#F3F1EA; --sheet:#fff; --sheet2:#F8F7F2; --ink:#1B1F27; --muted:#5D6370; --rule:#DAD6CB; --grid:rgba(27,31,39,.05);
+  --pen:#B0391B; --pen-soft:#FBE7E1; --tick:#1E7A4F; --feed:#2F55C9; --feed-soft:#E3E9FB; --ai:#6B3FA0; --on-ink:#F3F1EA; color-scheme: light dark; }
+@media (prefers-color-scheme: dark) { :root { --paper:#12141A; --sheet:#1A1D25; --sheet2:#20242E; --ink:#E9E7E0; --muted:#9AA0AC; --rule:#2B2F3A; --grid:rgba(233,231,224,.04);
+  --pen:#F0714C; --pen-soft:rgba(240,113,76,.14); --tick:#4CC38A; --feed:#7D9BFF; --feed-soft:rgba(125,155,255,.14); --ai:#B593E8; --on-ink:#12141A; } }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
-a { color: var(--accent); }
-img, svg { max-width: 100%; height: auto; }
-.wrap { max-width: 1080px; width: 100%; margin: 0 auto; padding: 0 clamp(16px, 4vw, 28px); }
-header.top { border-bottom: 1px solid var(--border); background: var(--card); }
-header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 14px; padding-bottom: 14px; flex-wrap: wrap; }
-.mark { width: 30px; height: 30px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; }
-.brand { font-weight: 650; }
-.brand small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
-nav.links { margin-left: auto; display: flex; gap: 16px; flex-wrap: wrap; font-size: 14px; }
-nav.links a { text-decoration: none; color: var(--text-2); }
-nav.links a:hover { color: var(--accent); }
-.hero { padding-top: clamp(36px, 7vw, 72px); padding-bottom: 28px; }
-.eyebrow { font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
-h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.15; margin: 10px 0 16px; letter-spacing: -.01em; }
-.lede { font-size: clamp(17px, 2.2vw, 19px); color: var(--text-2); max-width: 760px; margin: 0 0 24px; }
-.cta { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 26px; }
-.btn { display: inline-block; padding: 10px 16px; border-radius: 9px; border: 1px solid var(--border); background: var(--card); color: var(--text); text-decoration: none; font-weight: 600; font-size: 15px; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
-.fact { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font-size: 14px; }
-.fact b { display: block; font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-.note { background: var(--warn-soft); border: 1px solid var(--warn-border); border-radius: 10px; padding: 12px 16px; font-size: 14px; margin: 22px 0 0; }
-section { padding: 44px 0; border-top: 1px solid var(--border); }
-h2 { font-size: clamp(24px, 3.4vw, 30px); margin: 0 0 10px; }
-h3 { font-size: 18px; margin: 0 0 6px; }
-.sub { color: var(--text-2); max-width: 760px; margin: 0 0 24px; }
-.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
-.card p { margin: 0; color: var(--text-2); font-size: 15px; }
-figure { margin: 0 0 34px; }
-figure img { display: block; width: 100%; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
-figcaption { margin-top: 10px; font-size: 15px; color: var(--text-2); }
-figcaption .cap { display: inline-block; font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 1px 9px; margin-right: 6px; }
-.step { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
-.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px; align-items: start; }
-.table-wrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
-th { background: var(--card-2); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-code, pre { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
-code { background: var(--card-2); padding: 1px 5px; border-radius: 4px; }
-pre { background: var(--card-2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; overflow-x: auto; margin: 0 0 14px; }
-pre code { background: none; padding: 0; }
-ul { padding-left: 20px; }
-li { margin: 4px 0; }
-footer { border-top: 1px solid var(--border); padding: 28px 0 44px; color: var(--muted); font-size: 14px; }
-@media (max-width: 560px) { nav.links { margin-left: 0; width: 100%; gap: 12px; } }
+body { margin: 0; font: 16px/1.6 "Plex", ui-sans-serif, system-ui, sans-serif; color: var(--ink); background: var(--paper);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 24px 24px; overflow-x: hidden; }
+a { color: inherit; }
+.wrap { max-width: 1160px; margin: 0 auto; padding: 0 20px; }
+.cond { font-family: "Plex Cond", "Plex", sans-serif; font-weight: 600; letter-spacing: -.01em; }
+.mono, .eyebrow { font-family: "Plex Mono", ui-monospace, Menlo, monospace; }
+.eyebrow { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+header.top { position: sticky; top: 0; z-index: 10; background: var(--sheet); border-bottom: 1px solid var(--rule); }
+header.top .wrap { display: flex; align-items: center; gap: 16px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+.brand b { font-size: 19px; }
+nav.links { margin-left: auto; display: flex; gap: 18px; font-size: 14px; }
+nav.links a { text-decoration: none; color: var(--muted); } nav.links a:hover { color: var(--ink); }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--rule); background: var(--sheet); font-weight: 600; font-size: 15px; text-decoration: none; }
+.btn:hover { border-color: var(--ink); }
+.btn.ink { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+.hero { padding: 64px 20px 40px; display: grid; grid-template-columns: 1.15fr 1fr; gap: 48px; align-items: center; }
+.hero h1 { font-size: clamp(34px, 5vw, 54px); line-height: 1.05; margin: 10px 0 18px; }
+.hero h1 em { font-style: normal; color: var(--pen); }
+.hero p.lead { font-size: 18px; color: var(--muted); margin: 0 0 26px; max-width: 34em; }
+.cta { display: flex; gap: 10px; flex-wrap: wrap; }
+.meta { margin-top: 18px; font-size: 13px; color: var(--muted); }
+/* The ledger: sample vs. population drawn as tick marks */
+.ledger { background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; padding: 22px; box-shadow: 0 10px 30px -18px rgba(0,0,0,.35); }
+.ledger .row { margin: 4px 0 18px; }
+.ledger .lbl { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; }
+.ledger .lbl b { font-size: 34px; }
+.ticks { margin-top: 8px; height: 46px; border-radius: 6px; background-repeat: repeat-x; }
+.ticks.sample { width: 12%; background-image: repeating-linear-gradient(90deg, var(--muted) 0 1.5px, transparent 1.5px 5px); }
+.ticks.full { width: 100%; background-image: repeating-linear-gradient(90deg, var(--ink) 0 1.5px, transparent 1.5px 5px); position: relative; }
+.ticks.full::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 37px, var(--pen) 37px 39.5px, transparent 39.5px 131px); }
+.stamp { display: inline-block; border: 1.5px solid currentColor; border-radius: 4px; padding: 0 6px; font: 600 11px/1.6 "Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; transform: rotate(-3deg); }
+.ledger .foot { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--muted); border-top: 1px dashed var(--rule); padding-top: 14px; }
+section { padding: 44px 20px; }
+@media (prefers-color-scheme: dark) { .mark { stroke: rgba(233,231,224,.35); stroke-width: 1; } }
+h2 { font-size: 30px; line-height: 1.15; margin: 6px 0 14px; }
+.sub { color: var(--muted); max-width: 46em; margin: 0 0 24px; }
+.problem { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.card { background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; padding: 18px 20px; min-width: 0; }
+.card h3 { margin: 4px 0 6px; font-size: 18px; }
+.card p { margin: 0; color: var(--muted); font-size: 15px; }
+/* Story as numbered workpaper tabs */
+.story { counter-reset: s; display: grid; gap: 28px; }
+.shot { display: grid; grid-template-columns: 340px 1fr; gap: 28px; align-items: start; }
+.shot .txt { position: relative; padding-left: 54px; }
+.shot .txt::before { counter-increment: s; content: counter(s, decimal-leading-zero); position: absolute; left: 0; top: 2px; font: 600 15px "Plex Mono", monospace;
+  color: var(--on-ink); background: var(--ink); border-radius: 6px; padding: 4px 8px; }
+.shot h3 { margin: 0 0 6px; font-size: 21px; }
+.shot p { margin: 0 0 10px; color: var(--muted); font-size: 15px; }
+.cap { display: inline-block; font-size: 12.5px; font-weight: 600; color: var(--pen); border: 1px solid var(--rule); border-radius: 999px; padding: 2px 10px; background: var(--sheet); margin: 2px 4px 2px 0; }
+figure { margin: 0; background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; padding: 8px; box-shadow: 0 12px 30px -20px rgba(0,0,0,.4); min-width: 0; }
+figure img { display: block; width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--rule); }
+figcaption { font-size: 13px; color: var(--muted); padding: 8px 4px 2px; }
+.phones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; max-width: 760px; }
+.phones img { border-radius: 14px; }
+table.how { width: 100%; border-collapse: collapse; background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; font-size: 15px; }
+table.how th, table.how td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+table.how th { background: var(--sheet2); font: 600 12px "Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+table.how td:nth-child(2) { font-weight: 600; white-space: nowrap; }
+.scroll { overflow-x: auto; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+pre { background: var(--sheet2); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font: 13px/1.6 "Plex Mono", monospace; }
+ol, ul { padding-left: 20px; } li { margin: 4px 0; }
+code { font-family: "Plex Mono", monospace; font-size: .9em; }
+.notice { border-left: 3px solid var(--pen); background: var(--pen-soft); padding: 14px 18px; border-radius: 0 10px 10px 0; font-size: 14.5px; }
+footer { border-top: 1px solid var(--rule); padding: 22px 0 40px; font-size: 13.5px; color: var(--muted); }
+@media (max-width: 900px) {
+  .hero { grid-template-columns: 1fr; padding-top: 36px; gap: 28px; }
+  .problem, .two { grid-template-columns: 1fr; }
+  .shot { grid-template-columns: 1fr; gap: 14px; }
+  nav.links a:not(.keep) { display: none; }
+}
+@media (max-width: 480px) { .phones { grid-template-columns: 1fr 1fr; } .phones figure:last-child { display: none; } h2 { font-size: 25px; } }
 </style>
 </head>
 <body>
-
 <header class="top">
   <div class="wrap">
-    <div class="mark" aria-hidden="true">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
-    </div>
-    <div class="brand">Continuous Control Testing<small>A Snowflake example on synthetic data</small></div>
-    <nav class="links" aria-label="Page sections">
-      <a href="#walkthrough">Walkthrough</a>
-      <a href="#how-it-works">How it works</a>
-      <a href="#get-started">Get started</a>
-      <a href="https://github.com/sfc-gh-ooral/sfguide-continuous-control-testing">Repository</a>
+    <a class="brand" href="#" aria-label="Tallyward home">
+      <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="5" fill="#1B1F27" class="mark"/><path d="M7 6v12M11 6v12M15 6v12" stroke="#F3F1EA" stroke-width="1.6" stroke-linecap="round" opacity=".55"/><path d="M5.5 13.2l3.6 3.4L18.8 7" fill="none" stroke="#E4572E" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span><b class="cond">Tallyward</b> <span class="eyebrow" style="font-size:10.5px">A Snowflake example</span></span>
+    </a>
+    <nav class="links" aria-label="Page">
+      <a href="#walkthrough">Walkthrough</a><a href="#how">How it works</a><a href="#start">Get started</a>
+      <a class="keep btn ink" style="padding:6px 12px;font-size:13.5px" href="try/">Try it</a>
     </nav>
   </div>
 </header>
 
 <main>
-<div class="wrap hero" id="problem">
-  <div class="eyebrow">Banking · Risk</div>
-  <h1>Test every record, not a sample, and keep up with the exceptions</h1>
-  <p class="lede">Control testing often runs quarterly on 25 or 40 samples, so exceptions slip through. Test the full population and the counts can jump from zero to hundreds, faster than a team can review them. This example runs monthly tests over every record, groups the exceptions by root cause, uses data metric functions to tell a broken data feed from a failed control, triages the intake backlog with an AI agent that a person approves step by step, and keeps an evidence pack for every run.</p>
-  <div class="cta">
-    <a class="btn primary" href="try/">Try the example in your browser</a>
-    <a class="btn" href="https://github.com/sfc-gh-ooral/sfguide-continuous-control-testing">View the repository</a>
+<div class="wrap hero">
+  <div>
+    <div class="eyebrow">Banking · Risk · Continuous control testing</div>
+    <h1 class="cond">Quarterly samples miss what the <em>full population</em> shows.</h1>
+    <p class="lead">Control testers at a bank check a few dozen records per control each quarter and hope the rest are fine. This example tests every record every month on Snowflake, tells a broken data feed from a broken control, triages the exception backlog with an AI assistant, and keeps evidence an examiner can reproduce. A person approves every step.</p>
+    <div class="cta">
+      <a class="btn ink" href="try/">Try the example in your browser →</a>
+      <a class="btn" href="https://github.com/sfc-gh-ooral/sfguide-continuous-control-testing">View the repository</a>
+    </div>
+    <p class="meta">No account needed for the example. Synthetic data for a fictional bank, Northwind Financial. Live mode: Enterprise Edition, about 4.5 minutes of setup.</p>
   </div>
-  <div class="facts">
-    <div class="fact"><b>No-account mode</b>Runs in the browser on synthetic data; nothing to install</div>
-    <div class="fact"><b>Live mode</b>Enterprise Edition; Tasks, Dynamic Tables, data metric functions, Cortex AI</div>
-    <div class="fact"><b>Setup time</b>About 5 minutes in one Snowsight worksheet</div>
-    <div class="fact"><b>Measured cost</b>Under 0.9 warehouse credits on XSMALL for our whole build, plus AI token usage</div>
+  <div class="ledger" role="img" aria-label="October 2026 on this synthetic data: the old quarterly samples covered 230 records; the monthly tests read 1,930 records and found 85 exceptions.">
+    <div class="eyebrow">October 2026 · 8 automated controls</div>
+    <div class="row"><div class="lbl"><span>Old quarterly samples</span><b class="cond">230</b></div><div class="ticks sample"></div></div>
+    <div class="row"><div class="lbl"><span>Records tested in full</span><b class="cond">1,930</b></div><div class="ticks full"></div></div>
+    <div class="foot"><span class="stamp" style="color:var(--pen)">85 exceptions</span><span class="stamp" style="color:var(--feed)">1 feed anomaly in Aug</span><span>On this synthetic data set.</span></div>
   </div>
-  <p class="note"><strong>Synthetic data, illustrative logic.</strong> Northwind Financial and every person in it are fictional. This is not audit, legal, or compliance advice, and it isn't a production system. AI suggestions need a person's approval.</p>
 </div>
 
-<section>
-  <div class="wrap">
-    <h2>Who it's for</h2>
-    <div class="grid3">
-      <div class="card"><h3>Control testers and risk analysts</h3><p>An exception queue grouped by root cause, with the evidence row, the control SQL, and an AI explanation for each exception.</p></div>
-      <div class="card"><h3>Control owners</h3><p>Exceptions and backlog tickets routed to the right first-line team, with a drafted response to review.</p></div>
-      <div class="card"><h3>Audit and risk leadership</h3><p>Coverage and trend across controls, and an evidence pack per run that an examiner can reproduce.</p></div>
+<section class="wrap" aria-labelledby="who">
+  <div class="eyebrow">Who it is for</div>
+  <h2 id="who" class="cond">When full-population testing turns zero exceptions into hundreds</h2>
+  <p class="sub">Automating a control test is the easy part. The hard part is the backlog that follows, and proving to an examiner how each number was produced.</p>
+  <div class="problem">
+    <div class="card"><div class="eyebrow">2nd line</div><h3 class="cond">Control testers</h3><p>An exception queue grouped by root cause, with the evidence row, the control SQL and an AI explanation for each exception.</p></div>
+    <div class="card"><div class="eyebrow">1st line</div><h3 class="cond">Control owners</h3><p>Exceptions and tickets routed to the right team with a drafted response a person has approved.</p></div>
+    <div class="card"><div class="eyebrow">Audit &amp; leadership</div><h3 class="cond">Examiners' view</h3><p>Coverage and trend across controls, and an evidence pack per run with query IDs and a Time Travel recount.</p></div>
+  </div>
+</section>
+
+<section class="wrap" id="walkthrough" aria-labelledby="walk">
+  <div class="eyebrow">Walkthrough</div>
+  <h2 id="walk" class="cond">Five screens, one story</h2>
+  <p class="sub">Screenshots of the running app in Sample mode. The synthetic data covers eight automated controls tested monthly from January to October 2026.</p>
+  <div class="story">
+    <div class="shot">
+      <div class="txt"><h3 class="cond">See the whole population</h3><p>Eight controls test every record each month. The heatmap shows exceptions per control and month; the PY-01 dual-approval test jumps from 5 in July to 92 in August.</p>
+        <span class="cap">Snowflake Tasks</span><span class="cap">Dynamic Tables</span><span class="cap">Data metric functions</span></div>
+      <figure><img src="images/01-coverage.png" width="2000" height="1250" loading="lazy" alt="Tallyward coverage screen: KPI tiles show 1,930 records tested in October against 230 in the old samples and 8 of 25 controls automated; a heatmap of eight controls by month has PY-01 at 92 in August with a feed anomaly marker, next to a bar chart of quarterly sample versus full population per control"><figcaption>Control coverage. Monthly runs from a Snowflake task; open counts from a Dynamic Table.</figcaption></figure>
+    </div>
+    <div class="shot">
+      <div class="txt"><h3 class="cond">Work the queue by root cause</h3><p>Open exceptions are grouped by feed batch, system or document. A data metric function flags the August wire batch whose second-approver field arrived blank on 91% of large wires.</p>
+        <span class="cap">Data metric functions</span></div>
+      <figure><img src="images/02-queue.png" width="2000" height="1250" loading="lazy" alt="Exception queue filtered to August 2026: a blue banner says 91 open exceptions sit in the flagged feed batch WIRE-202608-03; the cluster table lists PY-01 WIRE-202608-03 with 91 exceptions, High severity and a Feed anomaly 91% pill, with a bar chart of open exceptions by control"><figcaption>Exception queue. One disposition, with a required note, can cover a whole cluster.</figcaption></figure>
+    </div>
+    <div class="shot">
+      <div class="txt"><h3 class="cond">Explain one exception</h3><p>The evidence row, the per-batch feed quality chart and the control SQL sit next to an AI explanation that suggests "Data issue". The reviewer makes the call.</p>
+        <span class="cap">Cortex AI_COMPLETE</span></div>
+      <figure><img src="images/03-exception.png" width="2000" height="1250" loading="lazy" alt="Exception W010235: the evidence row with approver_2 null, a bar chart of second-approver null percent by feed batch with batch 03 at 91 percent, the control SQL, and an AI explanation labeled Sample AI response that suggests Data issue, above the disposition buttons with Data issue preselected"><figcaption>Exception detail. AI_COMPLETE reads the row, the procedure and the DMF results.</figcaption></figure>
+    </div>
+    <div class="shot">
+      <div class="txt"><h3 class="cond">Triage the backlog with an agent</h3><p>Each ticket is classified, compared for duplicates, then investigated by an agent that queries the exceptions, searches procedures, checks feed quality and drafts a route. Each step waits for Approve, Edit or Reject.</p>
+        <span class="cap">Cortex AI_CLASSIFY</span><span class="cap">Cortex AI_SIMILARITY</span><span class="cap">Cortex Agents</span></div>
+      <figure><img src="images/04-triage.png" width="2000" height="1250" loading="lazy" alt="Triage assistant: the backlog of 20 tickets on the left; for WI-0101 the agent step, labeled Sample AI response, finds that 91 of August's 92 exceptions come from batch WIRE-202608-03, drafts a reply, routes it to Data Engineering, lists Cortex Analyst, Cortex Search and feed-quality tool sources, and shows Approve, Edit and Reject"><figcaption>Triage assistant. A Cortex Agent with Cortex Analyst, Cortex Search and stored-procedure tools.</figcaption></figure>
+    </div>
+    <div class="shot">
+      <div class="txt"><h3 class="cond">Hand the examiner a reproducible pack</h3><p>Every run keeps its query ID, counts and reviewers. A Time Travel query recounts the source table as of the run. Export as CSV or PDF.</p>
+        <span class="cap">Time Travel</span><span class="cap">Query history</span></div>
+      <figure><img src="images/05-evidence.png" width="2000" height="1250" loading="lazy" alt="Evidence pack for August 2026: tiles show 8 test runs, 1,794 records tested and 157 exceptions; the run ledger lists each control with records tested, exceptions, query ID, run time and dispositions, and the PY-01 row shows a Recounted stamp with 14,330 rows in SRC.WIRE_PAYMENTS as of the run"><figcaption>Evidence pack. Query IDs plus a Time Travel recount for each run.</figcaption></figure>
+    </div>
+  </div>
+  <div style="margin-top:34px" class="two">
+    <figure><img src="images/06-coverage-dark.png" width="2000" height="1250" loading="lazy" alt="The coverage screen in the dark theme: graphite background, the same KPI tiles, heatmap with the August PY-01 cell in vermilion, and the sample versus population chart"><figcaption>Dark theme ("night shift"), same tokens.</figcaption></figure>
+    <div class="phones">
+      <figure><img src="images/m1-coverage.png" width="780" height="1688" loading="lazy" alt="Phone-width coverage screen with tab pills, the scrollable month ribbon and stacked KPI tiles: 1,930 records tested and 8 of 25 controls automated"><figcaption>Phone</figcaption></figure>
+      <figure><img src="images/m2-exception.png" width="780" height="1688" loading="lazy" alt="Phone-width exception detail with the AI explanation labeled Sample AI response, its sources, a Data issue suggestion stamp and the decision buttons"><figcaption>Phone</figcaption></figure>
+      <figure><img src="images/m3-triage.png" width="780" height="1688" loading="lazy" alt="Phone-width triage step showing the agent's finding and draft response with Route: Data Engineering and its tool sources"><figcaption>Phone</figcaption></figure>
     </div>
   </div>
 </section>
 
-<section id="walkthrough">
-  <div class="wrap">
-    <h2>Walkthrough</h2>
-    <p class="sub">Screenshots of the running app on its synthetic data set: eight automated controls tested monthly from January to October 2026.</p>
-    <figure>
-      <img src="images/01-coverage.png" alt="Control coverage: 8 of 25 controls automated, 1,930 records tested last month against an old sample of 230, a stacked bar chart of exceptions by month with a Payments spike in August, and a table of all controls with trend sparklines and status" loading="lazy">
-      <figcaption><strong>Control coverage.</strong> Eight controls test every record each month, run by a Snowflake <strong>task</strong>; open counts come from a <strong>Dynamic Table</strong>. August shows PY-01 at 92 exceptions, about 18x July.</figcaption>
-    </figure>
-    <figure>
-      <img src="images/02-queue.png" alt="Exception queue: 383 open exceptions in root-cause clusters; the top cluster, PY-01 batch WIRE-202608-03 with 91 exceptions, carries a feed anomaly badge showing 91 percent approver_2 null against a 0.64 percent baseline" loading="lazy">
-      <figcaption><strong>Exception queue.</strong> Exceptions grouped by root cause, with severity and age. A <strong>data metric function</strong> flags the August wire batch whose second-approver field arrived blank. Bulk disposition needs a note.</figcaption>
-    </figure>
-    <figure>
-      <img src="images/03-exception.png" alt="Exception detail for wire W010235: the evidence row with approver 2 empty, an AI explanation labeled Sample AI response suggesting Data issue, the disposition form, and a bar chart of null percent by feed batch with batch 03 at 91 percent" loading="lazy">
-      <figcaption><strong>Exception detail.</strong> The evidence row, the per-batch feed quality chart, and the control SQL. <strong>AI_COMPLETE</strong> explains the exception and suggests a disposition; the reviewer decides.</figcaption>
-    </figure>
-    <figure>
-      <img src="images/04-triage.png" alt="Triage assistant: the backlog on the left; for ticket WI-0101 the agent step shows a finding that August's jump is one feed batch, a draft response, Route: Data Engineering, the tools it used, and Approve, Edit, and Reject buttons" loading="lazy">
-      <figcaption><strong>Triage assistant.</strong> <strong>AI_CLASSIFY</strong> labels each ticket, <strong>AI_SIMILARITY</strong> finds duplicates, and a <strong>Cortex Agent</strong> (Cortex Analyst, Cortex Search, and stored-procedure tools) investigates and drafts a route. Every step waits for Approve, Edit, or Reject.</figcaption>
-    </figure>
-    <figure>
-      <img src="images/05-evidence.png" alt="Evidence pack for August 2026: a table of the eight runs with records tested, exceptions, query ID, run time, dispositions, and a recount showing 2,839 rows in SRC.USER_ACCESS at run time; a data quality note flags batch WIRE-202608-03" loading="lazy">
-      <figcaption><strong>Evidence pack.</strong> Each run keeps its <strong>query ID</strong>, counts, and reviewers. <strong>Time Travel</strong> recounts the source table as of the run. Export as CSV or PDF.</figcaption>
-    </figure>
-  </div>
+<section class="wrap" id="how" aria-labelledby="howh">
+  <div class="eyebrow">How it works</div>
+  <h2 id="howh" class="cond">What runs on Snowflake</h2>
+  <p class="sub">Each capability below ran in Live mode on a Snowflake Enterprise account in November 2026.</p>
+  <div class="scroll"><table class="how">
+    <thead><tr><th>Step</th><th>Capability</th><th>What it does here</th></tr></thead>
+    <tbody>
+      <tr><td>Full-population tests</td><td>Stored procedure + task</td><td>Runs each control's SQL over every record for a month and writes runs and exceptions. A monthly task (created suspended) calls it.</td></tr>
+      <tr><td>Rollup</td><td>Dynamic Tables</td><td>Latest run per control and month with exception rate and open count, refreshed after each disposition.</td></tr>
+      <tr><td>Data or control?</td><td>Data metric functions</td><td>A custom DMF measures the second-approver null rate per wire feed batch; a batch far above its baseline is flagged.</td></tr>
+      <tr><td>Explanations</td><td>AI_COMPLETE</td><td>Explains an exception from its evidence row, the control procedure and the feed results, and suggests a disposition.</td></tr>
+      <tr><td>Intake</td><td>AI_CLASSIFY, AI_SIMILARITY</td><td>Labels each backlog ticket and ranks the others by similarity so the reviewer can link duplicates.</td></tr>
+      <tr><td>Orchestration</td><td>Cortex Agents</td><td>Cortex Analyst on a semantic view of runs and exceptions, Cortex Search on control procedures, and stored procedures for feed quality and table metadata.</td></tr>
+      <tr><td>Evidence</td><td>Query history, Time Travel</td><td>Every run stores its query ID; source tables keep 30 days of Time Travel so counts can be reproduced as of the run.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
-<section id="how-it-works">
-  <div class="wrap">
-    <h2>How it works</h2>
-    <p class="sub">Each capability below ran in live mode on a Snowflake Enterprise account in November 2026.</p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Step</th><th>Snowflake capability</th><th>What it does here</th></tr></thead>
-        <tbody>
-          <tr><td>Full-population tests</td><td>Stored procedure and a <a href="https://docs.snowflake.com/en/user-guide/tasks-intro">task</a></td><td>Runs each control's SQL over every record for a month and writes runs and exceptions. A monthly task (created suspended) calls it.</td></tr>
-          <tr><td>Rollup</td><td><a href="https://docs.snowflake.com/en/user-guide/dynamic-tables-about">Dynamic Tables</a></td><td>Latest run per control and month with exception rate and open count, refreshed after each disposition.</td></tr>
-          <tr><td>Data or control?</td><td><a href="https://docs.snowflake.com/en/user-guide/data-quality-intro">Data metric functions</a></td><td>A custom DMF measures the second-approver null rate per wire feed batch; a batch far above its baseline is flagged.</td></tr>
-          <tr><td>Explanations</td><td><a href="https://docs.snowflake.com/en/sql-reference/functions/ai_complete-single-string">AI_COMPLETE</a></td><td>Explains an exception from its evidence row, the control procedure, and the feed results, and suggests a disposition.</td></tr>
-          <tr><td>Intake</td><td><a href="https://docs.snowflake.com/en/sql-reference/functions/ai_classify">AI_CLASSIFY</a>, <a href="https://docs.snowflake.com/en/sql-reference/functions/ai_similarity">AI_SIMILARITY</a></td><td>Labels each backlog ticket and scores it against the others to find likely duplicates.</td></tr>
-          <tr><td>Orchestration</td><td><a href="https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents">Cortex Agents</a></td><td>Tools: Cortex Analyst on a semantic view of runs and exceptions, Cortex Search on control procedures, and stored procedures for feed quality and table metadata.</td></tr>
-          <tr><td>Evidence</td><td>Query history and <a href="https://docs.snowflake.com/en/user-guide/data-time-travel">Time Travel</a></td><td>Every run stores its query ID; source tables keep 30 days of Time Travel so counts can be reproduced as of the run.</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</section>
-
-<section id="get-started">
-  <div class="wrap">
-    <h2>Get started</h2>
-    <div class="two">
-      <div>
-        <h3>No account</h3>
-        <p class="sub" style="margin-bottom:12px">Open the <a href="try/">hosted example</a>, or run it locally with Node.js 20.19 or later:</p>
-<pre><code>git clone https://github.com/sfc-gh-ooral/sfguide-continuous-control-testing.git
+<section class="wrap" id="start" aria-labelledby="starth">
+  <div class="eyebrow">Get started</div>
+  <h2 id="starth" class="cond">Run it two ways</h2>
+  <div class="two">
+    <div class="card"><h3 class="cond">No account</h3>
+      <p>Open the <a href="try/">hosted example</a>, or run it locally with Node.js 20.19 or later:</p>
+      <pre>git clone https://github.com/sfc-gh-ooral/sfguide-continuous-control-testing.git
 cd sfguide-continuous-control-testing
 npm install
-npm run dev</code></pre>
-        <p class="sub">AI answers in this mode were recorded from a live run and are labeled <strong>Sample AI response</strong>.</p>
-      </div>
-      <div>
-        <h3>Your Snowflake account</h3>
-        <ol>
-          <li>Run <a href="https://github.com/sfc-gh-ooral/sfguide-continuous-control-testing/blob/main/sql/setup.sql"><code>sql/setup.sql</code></a> in a Snowsight worksheet. It creates a dedicated database, an XSMALL warehouse, and a least-privilege role, loads the synthetic data from the repository, and backfills ten months of runs.</li>
-          <li>Register a key pair for your user and copy <code>.env.example</code> to <code>.env.local</code>.</li>
-          <li>Run <code>npm run dev</code>. Each screen shows the live role and measured latency.</li>
-          <li>When you're done, run <code>sql/cleanup.sql</code>.</li>
-        </ol>
-        <p class="sub">Requires Enterprise Edition or higher. The README lists every object created, the expected cost, and the full steps.</p>
-      </div>
-    </div>
-    <h3 style="margin-top:20px">Customize with Cortex Code</h3>
-    <ul>
-      <li>"Turn my existing control test SQL into rows in CONTROLS and schedule the monthly task, with a least-privilege role."</li>
-      <li>"Connect the triage agent to my ticketing export and propose routing rules. Keep a human approval on every action."</li>
-      <li>"Add a data metric function for each source feed and alert on freshness and null-rate changes."</li>
-    </ul>
+npm run dev</pre>
+      <p>AI answers in this mode were recorded from a live run and are labeled Sample AI response.</p></div>
+    <div class="card"><h3 class="cond">Your Snowflake account</h3>
+      <ol style="color:var(--muted);font-size:15px">
+        <li>Run <code>sql/setup.sql</code> in a Snowsight worksheet. It creates a dedicated database, an XSMALL warehouse and a least-privilege role, loads the synthetic data and backfills ten months of runs (about 4.5 minutes).</li>
+        <li>Register a key pair for your user and copy <code>.env.example</code> to <code>.env.local</code>.</li>
+        <li>Run <code>npm run dev</code> and switch to Live. Each screen shows the live role and measured latency.</li>
+        <li>When you are done, run <code>sql/cleanup.sql</code>.</li>
+      </ol>
+      <p>Requires Enterprise Edition or higher. The README lists every object created, expected cost and full steps.</p></div>
   </div>
 </section>
 
-<section id="limits">
-  <div class="wrap">
-    <h2>Limits and disclaimer</h2>
-    <ul>
-      <li>Results such as "92 exceptions" and "18x July" are planted stories on this synthetic data set.</li>
-      <li>Ad-hoc data metric function calls don't accept a filtered subquery, so the runner snapshots each feed batch into a temporary table and measures that.</li>
-      <li>Agent and AI answers vary run to run. Every one is a suggestion; nothing is routed or dispositioned without a person.</li>
-      <li>Latency depends on your account, region, model, and warehouse. The app shows measured times in live mode only.</li>
-    </ul>
-    <p class="note">This is an illustrative example provided as is. It is not an official Snowflake product, it isn't supported by Snowflake Support, and it contains no customer data. Apache 2.0 license.</p>
-  </div>
+<section class="wrap" aria-labelledby="cocoh">
+  <div class="eyebrow">Customize with Cortex Code</div>
+  <h2 id="cocoh" class="cond">Make it yours</h2>
+  <ul style="color:var(--muted)">
+    <li>"Turn my existing control test SQL into rows in <code>CONTROLS</code> and schedule the monthly task, with a least-privilege role."</li>
+    <li>"Connect the triage agent to my ticketing export and propose routing rules. Keep a human approval on every action."</li>
+    <li>"Add a data metric function for each source feed and alert on freshness and null-rate changes."</li>
+  </ul>
+</section>
+
+<section class="wrap" aria-labelledby="limh">
+  <div class="eyebrow">Limits and disclaimer</div>
+  <h2 id="limh" class="cond">Read before you reuse</h2>
+  <ul style="color:var(--muted)">
+    <li>Results such as "92 exceptions" and "18x July" are planted stories on this synthetic data set.</li>
+    <li>AI answers vary run to run. Each one is a suggestion; nothing is routed or dispositioned without a person.</li>
+    <li>Duplicate detection ranks candidates; similarity alone does not prove a duplicate on this data.</li>
+    <li>Latency depends on your account, region, model and warehouse. The app shows measured times in Live mode only.</li>
+  </ul>
+  <p class="notice">Tallyward and Northwind Financial are fictional. Synthetic data and illustrative logic only; not production software, and not audit, legal, regulatory or compliance advice. This example is provided as is. It is not an official Snowflake product, is not supported by Snowflake Support, and contains no customer data. Apache 2.0 license.</p>
 </section>
 </main>
 
-<footer>
-  <div class="wrap">Owner: Oz Oral · Last reviewed: November 2026 · <a href="https://github.com/sfc-gh-ooral/sfguide-continuous-control-testing">Repository</a> · <a href="https://docs.snowflake.com/">Snowflake documentation</a></div>
-</footer>
+<footer><div class="wrap">Owner: Oz Oral · Last reviewed: November 2026 · <a href="https://github.com/sfc-gh-ooral/sfguide-continuous-control-testing">Repository</a> · <a href="https://docs.snowflake.com/">Snowflake documentation</a> · Fonts: IBM Plex (<a href="fonts/OFL.txt">SIL OFL 1.1</a>)</div></footer>
 </body>
 </html>

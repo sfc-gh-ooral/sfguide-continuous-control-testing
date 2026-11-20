@@ -1,11 +1,11 @@
 'use client';
 
-// Evidence pack: one snapshot per monthly run (query ID, records tested, exceptions, run time,
-// reviewers) with a Time Travel recount, exportable as CSV or PDF (browser print).
-import { Download, History, Printer } from 'lucide-react';
-import { useState } from 'react';
-import { ErrorBox, Tag } from '@/components/Status';
-import { Card, PoweredBy, SourceBadge, Thinking } from '@/components/ui';
+// Evidence pack: one snapshot per monthly run — query ID, records tested, exceptions, run time,
+// dispositions and reviewers — with a Time Travel recount. Exports as CSV or PDF (browser print).
+import { Download, FileCheck2, History, Printer } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { ErrorState, Kpi, Logo, PageSkeleton, Pill, PoweredBy, Sheet, Source, SqlBlock, dispositionTone } from '@/components/ui';
 import { useAsync } from '@/components/useAsync';
 import { monthLabel } from '@/lib/build';
 import { data } from '@/lib/client';
@@ -18,81 +18,103 @@ function csv(runs: EvidenceRun[]): string {
     r.dispositions.map((d) => `${d.disposition}: ${d.count}${d.reviewers.length ? ` (${d.reviewers.join('; ')})` : ''}`).join(' | ')].map(esc).join(','))].join('\n');
 }
 
-function RecountButton({ run }: { run: EvidenceRun }) {
-  const [r, setR] = useState<Recount>();
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string>();
-  if (r) return <span className="text-xs" title={r.sql}><strong className="tabular">{r.rows.toLocaleString()}</strong> rows in {r.table} at run time{r.queryId ? ` · query ${r.queryId}` : ' · sample'}</span>;
+function Recounter({ run }: { run: EvidenceRun }) {
+  const [r, setR] = useState<Recount>(); const [busy, setBusy] = useState(false); const [err, setErr] = useState<string>();
+  if (r) return (
+    <div className="text-[12px] rise"><span className={`stamp ${r.rows > 0 ? 'text-tick' : 'text-waive'}`}>Recounted</span>
+      <div className="mt-1"><b className="num">{r.rows.toLocaleString()}</b> rows in {r.table} as of the run</div>
+      <div className="text-muted font-mono break-all">{r.queryId ? `query ${r.queryId} · ${r.latencyMs} ms` : 'Sample data'}</div></div>
+  );
   return (
     <span className="no-print">
-      <button className="btn !py-1 !text-xs" disabled={busy} onClick={async () => { setBusy(true); try { setR(await data.recount(run.run_id)); } catch (e) { setErr(String((e as Error).message)); } finally { setBusy(false); } }}>
-        <History className="w-3.5 h-3.5" aria-hidden />{busy ? 'Recounting…' : 'Recount as of run'}
-      </button>
-      {err && <span role="alert" className="text-xs ml-1" style={{ color: 'var(--negative)' }}>{err}</span>}
+      <button className="btn btn-sm" disabled={busy} onClick={async () => { setBusy(true); try { setR(await data.recount(run.run_id)); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } }}>
+        <History className="w-3.5 h-3.5" aria-hidden />{busy ? 'Recounting…' : 'Recount as of run'}</button>
+      {err && <span role="alert" className="block text-[11.5px] text-pen mt-1">{err}</span>}
     </span>
   );
 }
 
-export default function EvidencePage() {
-  const [period, setPeriod] = useState<string>();
-  const { data: ev, error, loading } = useAsync(() => data.evidence(period), [period]);
-  if (error) return <ErrorBox error={error} />;
-  if (loading || !ev) return <Thinking label="Loading evidence" />;
+function Inner() {
+  const initial = useSearchParams().get('period') ?? undefined;
+  const [period, setPeriod] = useState<string | undefined>(initial);
+  const ev = useAsync(() => data.evidence(period), [period], { keep: true });
+  if (ev.error) return <ErrorState error={ev.error} retry={ev.reload} />;
+  if (!ev.data) return <PageSkeleton />;
+  const e = ev.data;
   const download = () => {
-    const url = URL.createObjectURL(new Blob([csv(ev.runs)], { type: 'text/csv' }));
-    const a = Object.assign(document.createElement('a'), { href: url, download: `evidence-${ev.period}.csv` });
-    a.click(); URL.revokeObjectURL(url);
+    const url = URL.createObjectURL(new Blob([csv(e.runs)], { type: 'text/csv' }));
+    Object.assign(document.createElement('a'), { href: url, download: `evidence-${e.period}.csv` }).click(); URL.revokeObjectURL(url);
   };
-  const anomalies = ev.feed.filter((f) => f.is_anomaly);
+  const tested = e.runs.reduce((a, r) => a + r.population_count, 0);
+  const exc = e.runs.reduce((a, r) => a + r.exception_count, 0);
+  const reviewed = e.runs.reduce((a, r) => a + r.dispositions.filter((d) => d.disposition !== 'Open').reduce((x, d) => x + d.count, 0), 0);
+  const anomalies = e.feed.filter((f) => f.is_anomaly);
 
   return (
-    <div className="space-y-5 stagger">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
+    <div className="space-y-5">
+      <div className="flex items-end justify-between gap-3 flex-wrap rise">
         <div>
-          <h1 className="page-title">Evidence pack</h1>
-          <p className="text-sm text-2 mt-1">Everything an examiner needs to reproduce {monthLabel(ev.period)}: the query behind each test, what it counted, and who reviewed the results.</p>
+          <div className="eyebrow">Evidence pack</div>
+          <h1 className="cond text-[28px] leading-tight mt-0.5 flex items-center gap-2"><span className="hidden print:inline"><Logo size={22} /></span>{monthLabel(e.period)} control testing evidence</h1>
+          <p className="text-muted text-[13.5px] mt-1 max-w-2xl">What an examiner needs to reproduce the month: the query behind each test, what it counted, and who reviewed the results.</p>
         </div>
         <div className="flex gap-2 flex-wrap items-center no-print">
-          <label className="text-xs muted flex items-center gap-1">Month
-            <select value={ev.period} onChange={(e) => setPeriod(e.target.value)} className="btn !py-1">
-              {ev.periods.map((p) => <option key={p} value={p}>{monthLabel(p)}</option>)}
-            </select>
-          </label>
+          <select value={e.period} onChange={(x) => setPeriod(x.target.value)} aria-label="Month" className="rounded-md border border-rule bg-sheet px-2 py-1.5 text-[13px]">
+            {e.periods.map((p) => <option key={p} value={p}>{monthLabel(p)}</option>)}</select>
           <button className="btn" onClick={download}><Download className="w-4 h-4" aria-hidden />CSV</button>
-          <button className="btn" onClick={() => window.print()}><Printer className="w-4 h-4" aria-hidden />PDF</button>
-          <SourceBadge p={ev} />
+          <button className="btn btn-ink" onClick={() => window.print()}><Printer className="w-4 h-4" aria-hidden />Export PDF</button>
+          <Source p={e} />
         </div>
       </div>
 
-      <Card title={`Runs, ${monthLabel(ev.period)}`} right={<span className="no-print flex gap-2"><PoweredBy>Query history</PoweredBy><PoweredBy>Time Travel</PoweredBy></span>}>
-        <div className="overflow-x-auto">
-          <table className="data-table">
-            <thead><tr><th>Control</th><th>Records tested</th><th>Exceptions</th><th>Query ID</th><th>Run</th><th>Dispositions</th><th>Reproduce</th></tr></thead>
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 stagger">
+        <Kpi label="Test runs" value={e.runs.length} icon={<FileCheck2 className="w-4 h-4" />} note="each with a query ID" />
+        <Kpi label="Records tested" value={tested} />
+        <Kpi label="Exceptions" value={exc} />
+        <Kpi label="Dispositioned" value={reviewed} note={`of ${exc}, with reviewer and note`} deltaTone={reviewed === exc ? 'tick' : 'muted'} delta={exc ? `${Math.round((100 * reviewed) / exc)}%` : undefined} />
+      </div>
+
+      <Sheet pad={false} className="rise" eyebrow={`Run ledger · ${monthLabel(e.period)}`} title="Runs" right={<span className="no-print flex gap-2 flex-wrap"><PoweredBy>Query history</PoweredBy><PoweredBy>Time Travel</PoweredBy></span>}>
+        <div className="scroll-x">
+          <table className="tbl">
+            <thead><tr><th>Control</th><th>Tested</th><th>Exceptions</th><th>Query ID</th><th>Run</th><th>Dispositions</th><th className="no-print">Reproduce</th></tr></thead>
             <tbody>
-              {ev.runs.map((r) => (
+              {e.runs.map((r) => (
                 <tr key={r.run_id}>
-                  <td><div className="font-medium">{r.control_id}</div><div className="text-xs muted max-w-[16rem]">{r.control_name}</div></td>
-                  <td className="tabular">{r.population_count.toLocaleString()}</td>
-                  <td className="tabular">{r.exception_count}</td>
-                  <td className="text-[11px] font-mono break-all max-w-[12rem]">{r.query_id}</td>
-                  <td className="text-xs">{new Date(r.run_ts).toLocaleString()}<div className="muted">{r.run_by} · {r.trigger_type}</div></td>
-                  <td className="text-xs space-y-0.5">{r.dispositions.length ? r.dispositions.map((d) => (
-                    <div key={d.disposition}><Tag tone={d.disposition === 'Open' ? 'muted' : 'good'}>{d.disposition}</Tag> {d.count}{d.reviewers.length ? ` · ${d.reviewers.join(', ')}` : ''}</div>
-                  )) : <span className="muted">None</span>}</td>
-                  <td><RecountButton run={r} /></td>
+                  <td className="min-w-[200px]"><div className="font-mono text-[12px] font-semibold">{r.control_id}</div><div className="text-[12.5px]">{r.control_name}</div></td>
+                  <td className="num">{r.population_count.toLocaleString()}</td>
+                  <td className="num font-semibold">{r.exception_count}</td>
+                  <td className="font-mono text-[11px] break-all min-w-[150px] max-w-[190px]">{r.query_id}</td>
+                  <td className="text-[12px] whitespace-nowrap">{new Date(r.run_ts).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}<div className="text-muted">{r.run_by} · {r.trigger_type}</div></td>
+                  <td className="text-[12px] space-y-1 min-w-[150px]">{r.dispositions.length ? r.dispositions.map((d) => (
+                    <div key={d.disposition} className="flex items-center gap-1.5 flex-wrap"><Pill tone={dispositionTone(d.disposition)}>{d.disposition}</Pill><span className="num">{d.count}</span>{d.reviewers.length > 0 && <span className="text-muted">· {d.reviewers.join(', ')}</span>}</div>
+                  )) : <span className="text-muted">No exceptions</span>}</td>
+                  <td className="no-print min-w-[170px]"><Recounter run={r} /></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <p className="text-xs muted mt-2">Source tables keep 30 days of Time Travel. Recount reruns <code>SELECT COUNT(*) … AT(TIMESTAMP =&gt; run time)</code> on the tested table.</p>
-      </Card>
+      </Sheet>
 
-      <Card title="Data quality at run time" right={<PoweredBy>Data metric functions</PoweredBy>}>
-        {anomalies.length
-          ? <p className="text-sm"><Tag tone="warn">Anomaly</Tag> {anomalies.map((f) => `${f.feed_batch_id}: ${f.metric_value}% of large wires had no second approver (baseline ${f.baseline_value}%)`).join('; ')}.</p>
-          : <p className="text-sm">No feed anomalies this month. {ev.feed.filter((f) => f.metric === 'APPROVER_2_NULL_PCT').length} wire feed batches measured.</p>}
-      </Card>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <Sheet className="rise" eyebrow="Data quality at run time" title={anomalies.length ? `${anomalies.length} feed batch flagged` : 'No feed anomalies'} right={<PoweredBy>Data metric functions</PoweredBy>}>
+          <ul className="space-y-1.5 text-[13px]">
+            {e.feed.filter((f) => f.metric === 'APPROVER_2_NULL_PCT').map((f) => (
+              <li key={f.feed_batch_id} className="flex items-center justify-between gap-3 border-b border-rule pb-1.5">
+                <span className="font-mono text-[12px]">{f.feed_batch_id}</span>
+                <span className="num">{f.metric_value}% null <span className="text-muted">· baseline {f.baseline_value ?? '–'}%</span> {f.is_anomaly && <Pill tone="feed">Anomaly</Pill>}</span>
+              </li>
+            ))}
+          </ul>
+        </Sheet>
+        <Sheet className="rise" eyebrow="How to reproduce" title="Recount a population as of the run">
+          <SqlBlock sql={`SELECT COUNT(*) FROM CONTROL_TESTING_DEMO.SRC.WIRE_PAYMENTS\n  AT(TIMESTAMP => '<run_ts>'::TIMESTAMP_LTZ);\n\nSELECT query_text, rows_produced\nFROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY\nWHERE query_id = '<query_id>';`} />
+          <p className="text-[11.5px] text-muted mt-2">Source tables keep 30 days of Time Travel. Query IDs point to the exact statement each test ran.</p>
+        </Sheet>
+      </div>
     </div>
   );
 }
+
+export default function EvidencePage() { return <Suspense fallback={<PageSkeleton />}><Inner /></Suspense>; }

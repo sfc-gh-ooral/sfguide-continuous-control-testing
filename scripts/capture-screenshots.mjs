@@ -23,35 +23,34 @@ const CARD_SCALE = 0.6;                               // 1600x1000 CSS px -> 960
 const SCHEME = process.env.COLOR_SCHEME || "light";  // "dark" or "light"
 
 // The walkthrough, in landing-page order. `card` marks which shots become catalog cards (in that order).
+// `phone` shots use a 390 px viewport; `dark` shots use the dark theme.
+const explain = async (page) => {
+  await page.getByRole("link", { name: "Review" }).first().click();
+  await page.getByRole("button", { name: "Explain", exact: true }).click();
+  await page.getByText("Suggested disposition").first().waitFor({ timeout: 30000 });
+};
+const agent = async (page) => {
+  const card = page.locator("section", { hasText: "Investigate, draft and route" }).first();
+  await card.getByRole("button", { name: "Run step" }).click();
+  await card.getByRole("button", { name: "Approve", exact: true }).waitFor({ timeout: 30000 });
+  await card.scrollIntoViewIfNeeded();
+};
 const SHOTS = [
-  { name: "01-coverage", card: 1, path: "/", wait: "text=All controls" },
-  { name: "02-queue", card: 2, path: "/queue/", wait: "text=root-cause clusters" },
+  { name: "01-coverage", card: 1, path: "/", wait: "text=Where the exceptions are" },
+  { name: "02-queue", card: 2, path: "/queue/?period=2026-08-01", wait: "text=Clusters" },
+  { name: "03-exception", card: 3, path: "/queue/?period=2026-08-01", wait: "text=Clusters", act: explain },
+  { name: "04-triage", card: 4, path: "/triage/", wait: "text=Backlog", act: agent },
   {
-    name: "03-exception", card: 3, path: "/queue/", wait: "text=root-cause clusters",
+    name: "05-evidence", card: 5, path: "/evidence/?period=2026-08-01", wait: "text=Run ledger · Aug 2026",
     async act(page) {
-      await page.getByRole("link", { name: "Open an example" }).first().click();
-      await page.getByRole("button", { name: /Explain this exception/ }).click();
-      await page.getByText("Suggested disposition:").waitFor({ timeout: 20000 });
-      await page.getByRole("button", { name: "Data issue" }).first().scrollIntoViewIfNeeded();
+      await page.getByRole("button", { name: /Recount as of run/ }).nth(6).click();
+      await page.getByText("Recounted").waitFor({ timeout: 10000 });
     },
   },
-  {
-    name: "04-triage", card: 4, path: "/triage/", wait: "text=Backlog",
-    async act(page) {
-      await page.getByRole("button", { name: "Run step" }).last().click();
-      await page.getByText(/Route:/).first().waitFor({ timeout: 20000 });
-      await page.getByText("3. Investigate, draft, and route").scrollIntoViewIfNeeded();
-    },
-  },
-  {
-    name: "05-evidence", card: 5, path: "/evidence/", wait: "text=Data quality at run time",
-    async act(page) {
-      await page.getByLabel("Month").selectOption({ index: 2 });
-      await page.getByText("WIRE-202608-03").first().waitFor();
-      await page.getByRole("button", { name: /Recount as of run/ }).first().click();
-      await page.getByText(/rows in SRC/).waitFor({ timeout: 10000 });
-    },
-  },
+  { name: "06-coverage-dark", dark: true, path: "/", wait: "text=Where the exceptions are" },
+  { name: "m1-coverage", phone: true, path: "/", wait: "text=Where the exceptions are" },
+  { name: "m2-exception", phone: true, path: "/queue/?period=2026-08-01", wait: "text=Clusters", act: explain },
+  { name: "m3-triage", phone: true, path: "/triage/", wait: "text=Backlog", act: agent },
 ];
 
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".txt": "text/plain", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".woff2": "font/woff2", ".ico": "image/x-icon" };
@@ -92,7 +91,7 @@ async function main() {
         ...(shot.card ? [[CARD_SCALE, join(DOCS, "catalog", `${CARD_ID}-${shot.card}.jpg`)]] : []),
       ]) {
         const context = await browser.newContext({
-          viewport: VIEWPORT, deviceScaleFactor: scale, colorScheme: SCHEME, reducedMotion: "reduce",
+          viewport: shot.phone ? { width: 390, height: 844 } : VIEWPORT, deviceScaleFactor: shot.phone ? 2 : scale, colorScheme: shot.dark ? "dark" : SCHEME, reducedMotion: "reduce",
           // Fixed locale and time zone so dates render the same on every machine.
           locale: "en-US", timezoneId: "America/New_York",
         });

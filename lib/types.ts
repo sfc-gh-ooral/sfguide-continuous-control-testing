@@ -32,6 +32,8 @@ export interface CoverageControl extends ControlRow {
 export interface Coverage extends Provenance {
   months: string[]; controls: CoverageControl[];
   kpis: { automated: number; total: number; tested: number; sampledBefore: number; open: number; lastPeriod: string };
+  /** Feed batches the data metric functions flagged, by month (shown on the heatmap). */
+  anomalies: { period_start: string; feed_batch_id: string; metric_value: number; baseline_value: number | null }[];
 }
 export interface Cluster {
   key: string; control_id: string; control_name: string; cluster_key: string; period_start: string;

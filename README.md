@@ -2,9 +2,11 @@
 
 Help risk and audit teams test entire populations instead of samples, triage exceptions with an AI assistant, and keep evidence for every run.
 
-This is a Snowflake example on **synthetic data**: a Next.js app with a no-account mode and a live mode backed by Tasks, Dynamic Tables, data metric functions, AI_COMPLETE, AI_CLASSIFY, AI_SIMILARITY, and a Cortex Agent (Cortex Analyst, Cortex Search, and custom stored-procedure tools).
+This is a Snowflake example on **synthetic data**: **Tallyward**, a fictional control-assurance app for the fictional bank Northwind Financial. It is a Next.js app with a no-account mode and a live mode backed by Tasks, Dynamic Tables, data metric functions, AI_COMPLETE, AI_CLASSIFY, AI_SIMILARITY, and a Cortex Agent (Cortex Analyst, Cortex Search, and custom stored-procedure tools).
 
 **[Try the hosted example](https://sfc-gh-ooral.github.io/sfguide-continuous-control-testing/try/)** · **[Guide](https://sfc-gh-ooral.github.io/sfguide-continuous-control-testing/)**
+
+The look and brand are described in [docs/DESIGN.md](docs/DESIGN.md).
 
 > Synthetic data and illustrative logic only. This is not audit, legal, or compliance advice. AI explanations, classifications, and routes are suggestions for a person to approve.
 
@@ -17,6 +19,7 @@ This is a Snowflake example on **synthetic data**: a Next.js app with a no-accou
 | Exception detail | The evidence row, feed quality by batch for that month, the control SQL and query ID, and an AI explanation with a suggested disposition | `AI_COMPLETE` over the evidence row, the control procedure, and the DMF results |
 | Triage assistant | The intake backlog. For each ticket: classify, find duplicates, then an agent investigates, drafts a response, and proposes a route. Each step has Approve / Edit / Reject | `AI_CLASSIFY`, `AI_SIMILARITY`, Cortex Agent `TRIAGE_AGENT`; decisions written to `TRIAGE_LOG` and `WORK_ITEMS` |
 | Evidence pack | Per month: each run's query ID, records tested, exceptions, run time, run by, dispositions and reviewers, feed quality, and a recount as of the run. Export CSV or PDF | Query IDs from the runner, Time Travel (`AT(TIMESTAMP => …)`, 30-day retention on `SRC`) |
+| Period ribbon | Exceptions per tested month under the top bar on every screen; the August spike stands out and each month links to its queue | Same snapshot as coverage |
 | Sample / Live switch | Header switch that always shows the mode. Live with no connection shows setup steps instead of asking for credentials. AI steps show staged progress; in Sample mode a recorded answer arrives after 4–8 seconds | `/api/mode`; live calls report measured latency and never fall back to sample data |
 
 ### Story on this synthetic data set
@@ -25,7 +28,7 @@ This is a Snowflake example on **synthetic data**: a Next.js app with a no-accou
 2. **The August spike.** PY-01 (dual approval on wires over $250,000) finds 92 exceptions in August against 5 in July, about 18x.
 3. **A data problem, not a control failure.** 91 of the 92 come from one feed batch, `WIRE-202608-03`, where the data metric function shows the second-approver field blank on 91% of large wires (baseline 0.64%). The triage agent finds the same thing with its feed-quality tool and routes the ticket to Data Engineering.
 4. **A real exception.** AC-01 finds terminated employees who kept access for more than 30 days. The agent routes one to Identity & Access Management.
-5. **Duplicates.** Three tickets describe the August spike; `AI_SIMILARITY` scores them 0.72–0.76 against each other.
+5. **Duplicates.** Three tickets describe the August spike; `AI_SIMILARITY` ranks them first for each other (0.72–0.76). Unrelated tickets can score almost as high, so the app ranks candidates and the reviewer picks the original.
 6. **Evidence.** The August pack lists each run's query ID and recounts the source table as of the run with Time Travel.
 
 These counts are planted stories on this synthetic data set. See [data/README.md](data/README.md).
@@ -101,15 +104,15 @@ To refresh the no-account snapshot from your live account: `node scripts/export-
 
 ### Expected cost and time
 
-- **Setup:** about 4 minutes on XSMALL in our test (250 seconds end to end).
+- **Setup:** about 4.5 minutes on XSMALL in our test (270 seconds end to end, November 20, 2026).
 - **Warehouse:** our whole build (setup run three times, the sample export, and live sessions through every screen and AI step) used **0.88 credits** on XSMALL in `WAREHOUSE_METERING_HISTORY`. One setup plus a session costs less.
 - **AI credits:** Cortex AI functions, Cortex Agents, and Cortex Search are billed separately by tokens. Check `SNOWFLAKE.ACCOUNT_USAGE.CORTEX_FUNCTIONS_USAGE_HISTORY` and `CORTEX_AGENT_USAGE_HISTORY`, which can lag by up to a few hours. See the [Service Consumption Table](https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf) for rates.
 - **Measured latency** in our test on XSMALL, from the app server:
   - Coverage, queue, evidence: 0.4–6 s (the first call includes connecting).
-  - Exception explanation (`AI_COMPLETE`): 4.6–6.4 s.
-  - Classify: about 0.6 s. Duplicates: about 0.9 s.
-  - Agent triage: 11–22 s.
-  - Time Travel recount: about 0.1 s.
+  - Exception explanation (`AI_COMPLETE`): 5–8 s.
+  - Classify: 0.8–1.6 s. Duplicates: 1–2.8 s.
+  - Agent triage: 11.6–21.5 s.
+  - Time Travel recount: 0.1–0.8 s.
 
   Yours will differ. The app shows the measured time on each live response.
 
@@ -121,6 +124,8 @@ To refresh the no-account snapshot from your live account: `node scripts/export-
 - **The anomaly rule is simple:** a batch is flagged when its null rate is above 10% and five times the trailing baseline.
 - **AI answers vary run to run.** The sample mode replays answers recorded from one live run; the exception explanations in sample mode are scripted from the same facts.
 - **The agent can't change data.** Its tools are read only. `DRAFT_WORK_ITEM` exists for you to attach if you want drafts, and every route goes through Approve / Edit / Reject in the app.
+- **Duplicate detection is a ranking, not a verdict.** On this data the planted duplicates score 0.60–0.76 and some unrelated pairs score up to 0.74, so the app never auto-links; the reviewer chooses.
+- **The agent sometimes writes a planning line** before its answer; the app shows the answer from "Finding:" on.
 - **Time Travel retention is 30 days** on `SRC`; recounts of older runs fail.
 
 ## Customize with Cortex Code
@@ -132,8 +137,8 @@ To refresh the no-account snapshot from your live account: `node scripts/export-
 ## Project layout
 
 ```text
-app/                 Next.js App Router pages and the /api/data route
-components/          Shell, Reasoning (staged AI progress), DispositionForm, UI pieces
+app/                 Next.js App Router pages and the /api/data route; globals.css holds the design tokens
+components/          Shell (top bar, period ribbon), AiPanel (staged steps, streaming reveal), ModeSwitch, ui kit
 lib/cct-data.ts      Data interface used by every screen
 lib/build.ts         Shared rules that turn tables into screens (both modes)
 lib/mock-data.ts     No-account implementation (also runs in the browser for /try/)
