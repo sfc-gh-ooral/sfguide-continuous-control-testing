@@ -143,7 +143,7 @@ footer { border-top: 1px solid var(--rule); padding: 22px 0 40px; font-size: 13.
   <p class="sub">Screenshots of the running app in Sample mode. The synthetic data covers eight automated controls tested monthly from January to October 2026.</p>
   <div class="story">
     <div class="shot">
-      <div class="txt"><h3 class="cond">See the whole population</h3><p>Eight controls test every record each month. The heatmap shows exceptions per control and month; the PY-01 dual-approval test jumps from 5 in July to 92 in August.</p>
+      <div class="txt"><h3 class="cond">See the whole population</h3><p>Eight controls test every record each month, and Run tests now re-runs the monthly task on demand. The heatmap shows exceptions per control and month; the PY-01 dual-approval test jumps from 5 in July to 92 in August.</p>
         <span class="cap">Snowflake Tasks</span><span class="cap">Dynamic Tables</span><span class="cap">Data metric functions</span></div>
       <figure><img src="images/01-coverage.png" width="2000" height="1250" loading="lazy" alt="Tallyward coverage screen: KPI tiles show 1,930 records tested in October against 230 in the old samples and 8 of 25 controls automated; a heatmap of eight controls by month has PY-01 at 92 in August with a feed anomaly marker, next to a bar chart of quarterly sample versus full population per control"><figcaption>Control coverage. Monthly runs from a Snowflake task; open counts from a Dynamic Table.</figcaption></figure>
     </div>
@@ -185,12 +185,12 @@ footer { border-top: 1px solid var(--rule); padding: 22px 0 40px; font-size: 13.
   <div class="scroll"><table class="how">
     <thead><tr><th>Step</th><th>Capability</th><th>What it does here</th></tr></thead>
     <tbody>
-      <tr><td>Full-population tests</td><td>Stored procedure + task</td><td>Runs each control's SQL over every record for a month and writes runs and exceptions. A monthly task (created suspended) calls it.</td></tr>
+      <tr><td>Full-population tests</td><td>Stored procedure + task</td><td>Runs each control's SQL over every record for a month and writes runs and exceptions. A monthly task calls it; the app's Run tests now button runs that task on demand with EXECUTE TASK.</td></tr>
       <tr><td>Rollup</td><td>Dynamic Tables</td><td>Latest run per control and month with exception rate and open count, refreshed after each disposition.</td></tr>
-      <tr><td>Data or control?</td><td>Data metric functions</td><td>A custom DMF measures the second-approver null rate per wire feed batch; a batch far above its baseline is flagged.</td></tr>
+      <tr><td>Data or control?</td><td>Data metric functions</td><td>A custom DMF measures the second-approver null rate per wire feed batch, and scheduled NULL_COUNT and ROW_COUNT DMFs watch the feed. The agent's feed-quality tool reads those results and calls the custom DMF live.</td></tr>
       <tr><td>Explanations</td><td>AI_COMPLETE</td><td>Explains an exception from its evidence row, the control procedure and the feed results, and suggests a disposition.</td></tr>
       <tr><td>Intake</td><td>AI_CLASSIFY, AI_SIMILARITY</td><td>Labels each backlog ticket and ranks the others by similarity so the reviewer can link duplicates.</td></tr>
-      <tr><td>Orchestration</td><td>Cortex Agents</td><td>Cortex Analyst on a semantic view of runs and exceptions, Cortex Search on control procedures, and stored procedures for feed quality and table metadata.</td></tr>
+      <tr><td>Orchestration</td><td>Cortex Agents</td><td>Via the agent's tools: Cortex Analyst on a semantic view of runs and exceptions, Cortex Search on control procedures, and stored procedures for feed quality and table metadata.</td></tr>
       <tr><td>Evidence</td><td>Query history, Time Travel</td><td>Every run stores its query ID; source tables keep 30 days of Time Travel so counts can be reproduced as of the run.</td></tr>
     </tbody>
   </table></div>

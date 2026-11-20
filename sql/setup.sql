@@ -82,16 +82,17 @@ CREATE OR REPLACE TABLE CHANGE_TICKETS (change_id VARCHAR, system_name VARCHAR, 
   approved_by VARCHAR, approved_ts TIMESTAMP_NTZ, deployed_ts TIMESTAMP_NTZ, post_review_date DATE);
 
 COPY INTO TERMINATIONS   FROM @CCT_DATA/terminations.csv   FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+
+-- Scheduled data metric functions on the wire feed: Snowflake records the null count of the
+-- second approver after every load, starting with the load below (results in SNOWFLAKE.LOCAL.DATA_QUALITY_MONITORING_RESULTS).
+ALTER TABLE WIRE_PAYMENTS SET DATA_METRIC_SCHEDULE = 'TRIGGER_ON_CHANGES';
+ALTER TABLE WIRE_PAYMENTS ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.NULL_COUNT ON (approver_2);
+ALTER TABLE WIRE_PAYMENTS ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.ROW_COUNT ON ();
+
 COPY INTO USER_ACCESS    FROM @CCT_DATA/user_access.csv    FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
 COPY INTO WIRE_PAYMENTS  FROM @CCT_DATA/wire_payments.csv  FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
 COPY INTO LOAN_FILES     FROM @CCT_DATA/loan_files.csv     FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
 COPY INTO CHANGE_TICKETS FROM @CCT_DATA/change_tickets.csv FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
-
--- Scheduled data metric functions on the wire feed: Snowflake records the null count of the
--- second approver after every load (results in SNOWFLAKE.LOCAL.DATA_QUALITY_MONITORING_RESULTS).
-ALTER TABLE WIRE_PAYMENTS SET DATA_METRIC_SCHEDULE = 'TRIGGER_ON_CHANGES';
-ALTER TABLE WIRE_PAYMENTS ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.NULL_COUNT ON (approver_2);
-ALTER TABLE WIRE_PAYMENTS ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.ROW_COUNT ON ();
 
 -- 2b. Control library -------------------------------------------------------------
 USE SCHEMA CTRL;
@@ -262,8 +263,9 @@ CALL RUN_CONTROL_TESTS('2026-08-01', 'Backfill');
 CALL RUN_CONTROL_TESTS('2026-09-01', 'Backfill');
 CALL RUN_CONTROL_TESTS('2026-10-01', 'Backfill');
 
--- Monthly schedule: on the 2nd of each month, test the month that just ended. Created suspended;
--- run `ALTER TASK CTRL.MONTHLY_CONTROL_TESTS RESUME;` to turn it on.
+-- Monthly schedule: on the 2nd of each month, test the month that just ended. Created suspended so
+-- the example costs nothing while idle; the app's "Run tests now" button runs it on demand with
+-- EXECUTE TASK. Run `ALTER TASK CTRL.MONTHLY_CONTROL_TESTS RESUME;` to turn the schedule on.
 CREATE OR REPLACE TASK MONTHLY_CONTROL_TESTS
   WAREHOUSE = CCT_WH
   SCHEDULE = 'USING CRON 0 6 2 * * UTC'
@@ -370,7 +372,9 @@ BEGIN
 END;
 $$;
 
--- Feed quality for one month: the DMF results stored by the last run.
+-- Feed quality for one month. Runs data metric functions live on every call: reads the latest
+-- results of the scheduled NULL_COUNT and ROW_COUNT DMFs on the wire feed, calls the custom
+-- APPROVER_2_NULL_PCT DMF ad hoc over the whole feed, and adds the per-batch results the last test run stored.
 CREATE OR REPLACE PROCEDURE CHECK_FEED_QUALITY(PERIOD_START VARCHAR)
 RETURNS VARCHAR
 LANGUAGE SQL
@@ -378,12 +382,25 @@ EXECUTE AS OWNER
 AS
 $$
 DECLARE
+  sched VARCHAR;
+  feed_pct FLOAT;
   res VARCHAR;
 BEGIN
+  LET rs1 RESULTSET := (SELECT LISTAGG(metric_name || ' = ' || value || ' (measured ' || TO_VARCHAR(measurement_time, 'YYYY-MM-DD HH24:MI') || ')', '; ') AS v
+    FROM (SELECT metric_name, value, measurement_time
+          FROM TABLE(SNOWFLAKE.LOCAL.DATA_QUALITY_MONITORING_RESULTS(REF_ENTITY_NAME => 'CONTROL_TESTING_DEMO.SRC.WIRE_PAYMENTS', REF_ENTITY_DOMAIN => 'TABLE'))
+          QUALIFY ROW_NUMBER() OVER (PARTITION BY metric_name ORDER BY measurement_time DESC) = 1));
+  LET cur1 CURSOR FOR rs1;
+  OPEN cur1; FETCH cur1 INTO sched; CLOSE cur1;
+  LET rs2 RESULTSET := (SELECT CTRL.APPROVER_2_NULL_PCT(SELECT amount_usd, approver_2 FROM SRC.WIRE_PAYMENTS) AS v);
+  LET cur2 CURSOR FOR rs2;
+  OPEN cur2; FETCH cur2 INTO feed_pct; CLOSE cur2;
   SELECT LISTAGG(feed_batch_id || ': approver_2 null ' || metric_value || '% (baseline ' || baseline_value || '%)' || IFF(is_anomaly, ' ANOMALY', ''), '\n')
          WITHIN GROUP (ORDER BY feed_batch_id) INTO :res
   FROM CTRL.FEED_QUALITY WHERE metric = 'APPROVER_2_NULL_PCT' AND period_start = DATE_TRUNC(month, TRY_TO_DATE(:PERIOD_START));
-  RETURN COALESCE(:res, 'No feed quality results for that month.');
+  RETURN 'Scheduled DMFs on SRC.WIRE_PAYMENTS: ' || COALESCE(NULLIF(:sched, ''), 'no results yet') ||
+         '\nAPPROVER_2_NULL_PCT over the whole feed, measured now: ' || COALESCE(TO_VARCHAR(ROUND(:feed_pct, 2)), 'n/a') || '%' ||
+         '\nBy feed batch for that month:\n' || COALESCE(:res, 'No feed quality results for that month.');
 END;
 $$;
 

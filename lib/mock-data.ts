@@ -76,4 +76,10 @@ export const mockData: CctData = {
     if (!r || !c?.source_table) throw new Error('Run not found');
     return { ...mock, table: c.source_table, asOf: r.run_ts, rows: SOURCE_ROWS[c.source_table], sql: recountSql(c.source_table, r.run_ts) };
   },
+  async runTests() {
+    // Sample mode only simulates the task run; the bundled data does not change.
+    await wait(SAMPLE_DELAY_MS.runTests);
+    return { ...mock, task: 'CTRL.MONTHLY_CONTROL_TESTS', state: 'SUCCEEDED', scheduledFor: new Date().toISOString(), durationMs: SAMPLE_DELAY_MS.runTests,
+      result: 'Sample run: no Snowflake account is connected, so nothing was re-tested.' };
+  },
 };

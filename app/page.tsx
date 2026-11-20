@@ -2,14 +2,15 @@
 
 // Control coverage: what was tested last month, full population against the old quarterly sample,
 // and a controls × months heatmap of exceptions with data-quality (DMF) flags.
-import { ArrowUpRight, Layers, ListChecks, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { ArrowUpRight, Layers, ListChecks, Play, ShieldCheck, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useCoverage } from '@/components/Shell';
 import { ChartTip, ErrorState, Kpi, PageSkeleton, Pill, PoweredBy, Sheet, Source } from '@/components/ui';
 import { monthLabel } from '@/lib/build';
-import type { CoverageControl } from '@/lib/types';
+import { data } from '@/lib/client';
+import type { CoverageControl, TaskRun } from '@/lib/types';
 
 const DOMAINS = ['All', 'Access', 'Payments', 'Lending', 'Change management', 'Finance'];
 type SortKey = 'control_id' | 'population' | 'exceptions' | 'rate';
@@ -49,6 +50,28 @@ function Heatmap({ controls, months, anomalies }: { controls: CoverageControl[];
   );
 }
 
+// Runs the MONTHLY_CONTROL_TESTS task once, on demand (EXECUTE TASK), and reloads coverage when it ends.
+function RunTests({ onDone }: { onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [secs, setSecs] = useState(0);
+  const [run, setRun] = useState<TaskRun | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { if (!busy) return; const t = setInterval(() => setSecs((s) => s + 1), 1000); return () => clearInterval(t); }, [busy]);
+  const stage = secs < 2 ? 'Starting the task' : secs < 5 ? 'Testing every record in each control' : 'Measuring the wire feed and recording runs';
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button className="btn btn-sm" disabled={busy} onClick={async () => {
+        setBusy(true); setSecs(0); setErr(null); setRun(null);
+        try { const r = await data.runTests(); setRun(r); if (r.state === 'SUCCEEDED') onDone(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+      }}><Play className="w-3.5 h-3.5" />{busy ? `${stage}… ${secs}s` : 'Run tests now'}</button>
+      {run && <span className="text-[11.5px] text-muted text-right max-w-xs" role="status">
+        {run.source === 'mock' ? 'Sample run · ' : ''}<span className="font-mono">{run.task}</span> {run.state.toLowerCase()} in {(run.durationMs / 1000).toFixed(1)}s
+        {run.queryId && <> · query <span className="font-mono">{run.queryId.slice(0, 8)}…</span></>}{run.error && <> · {run.error}</>}</span>}
+      {err && <span className="text-[11.5px] text-pen" role="alert">{err}</span>}
+    </div>
+  );
+}
+
 export default function CoveragePage() {
   const { coverage: c, error, reload } = useCoverage();
   const [domain, setDomain] = useState('All');
@@ -82,7 +105,7 @@ export default function CoveragePage() {
           <h1 className="cond text-[28px] leading-tight mt-0.5">Every record tested, every month</h1>
           <p className="text-muted text-[13.5px] mt-1 max-w-2xl">{c.kpis.automated} of {c.kpis.total} controls now run as monthly tests over the full population. The rest still rely on a quarterly sample.</p>
         </div>
-        <div className="flex gap-2 flex-wrap items-center"><PoweredBy>Snowflake Tasks</PoweredBy><PoweredBy>Dynamic Tables</PoweredBy><Source p={c} /></div>
+        <div className="flex gap-2 flex-wrap items-center"><PoweredBy>Snowflake Tasks</PoweredBy><PoweredBy>Dynamic Tables</PoweredBy><Source p={c} /><RunTests onDone={reload} /></div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 stagger">

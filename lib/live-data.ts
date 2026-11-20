@@ -1,5 +1,5 @@
 // Live mode: reads and writes CONTROL_TESTING_DEMO with CCT_DEMO_ROLE. Coverage reads the
-// EXCEPTION_ROLLUP Dynamic Table, AI explanations use AI_COMPLETE, triage uses AI_CLASSIFY,
+// EXCEPTION_ROLLUP Dynamic Table and can run the MONTHLY_CONTROL_TESTS task on demand, AI explanations use AI_COMPLETE, triage uses AI_CLASSIFY,
 // AI_SIMILARITY, and the TRIAGE_AGENT Cortex Agent, and the evidence recount uses Time Travel.
 // Latency shown in the UI is measured here.
 import { coverage, evidence, exceptionDetail, queue, recountSql } from './build';
@@ -10,7 +10,9 @@ import { DISPOSITIONS, type ControlRow, type ExceptionRow, type FeedQualityRow, 
 const AGENT = process.env.SNOWFLAKE_AGENT_NAME ?? 'CONTROL_TESTING_DEMO.CTRL.TRIAGE_AGENT';
 const MODEL = process.env.SNOWFLAKE_COMPLETE_MODEL ?? 'claude-sonnet-4-5';
 const CATEGORIES = ['Control failure', 'Data quality issue', 'Evidence request', 'Question', 'Enhancement request'];
-const SOURCE_TABLES = new Set(['SRC.USER_ACCESS', 'SRC.WIRE_PAYMENTS', 'SRC.LOAN_FILES', 'SRC.CHANGE_TICKETS']);
+// Each control's source table, as a constant: the recount never builds SQL from a stored name.
+const SOURCE_TABLE: Record<string, string> = { 'SRC.USER_ACCESS': 'SRC.USER_ACCESS', 'SRC.WIRE_PAYMENTS': 'SRC.WIRE_PAYMENTS', 'SRC.LOAN_FILES': 'SRC.LOAN_FILES', 'SRC.CHANGE_TICKETS': 'SRC.CHANGE_TICKETS' };
+const TASK = 'MONTHLY_CONTROL_TESTS';
 
 type Row = Record<string, unknown>;
 const lower = <T>(rows: Row[]): T[] => rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k.toLowerCase(), v])) as T);
@@ -130,9 +132,30 @@ export const liveData: CctData = {
   async recount(runId) {
     const [r] = await query<{ SOURCE_TABLE: string; RUN_TS: string }>(`SELECT c.source_table, TO_VARCHAR(t.run_ts, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') run_ts
       FROM TEST_RUNS t JOIN CONTROLS c USING (control_id) WHERE t.run_id = ?`, [runId]);
-    if (!r || !SOURCE_TABLES.has(r.SOURCE_TABLE)) throw new Error('Run not found');
-    // The table name comes from an allow-list; the timestamp is a bind variable.
-    const [{ rows, queryId }, ms] = await timed(() => exec<{ N: number }>(`SELECT COUNT(*) AS N FROM ${r.SOURCE_TABLE} AT(TIMESTAMP => ?::TIMESTAMP_LTZ)`, [r.RUN_TS]));
-    return { ...live(ms), table: r.SOURCE_TABLE, asOf: r.RUN_TS, rows: Number(rows[0].N), queryId, sql: recountSql(r.SOURCE_TABLE, r.RUN_TS) };
+    const table = r && Object.hasOwn(SOURCE_TABLE, r.SOURCE_TABLE) ? SOURCE_TABLE[r.SOURCE_TABLE] : undefined;
+    if (!table) throw new Error('Run not found');
+    // The table name is a constant from SOURCE_TABLE; the timestamp is a bind variable.
+    const [{ rows, queryId }, ms] = await timed(() => exec<{ N: number }>(`SELECT COUNT(*) AS N FROM ${table} AT(TIMESTAMP => ?::TIMESTAMP_LTZ)`, [r.RUN_TS]));
+    return { ...live(ms), table, asOf: r.RUN_TS, rows: Number(rows[0].N), queryId, sql: recountSql(table, r.RUN_TS) };
+  },
+
+  async runTests() {
+    // Runs the suspended monthly task once, now, then waits for TASK_HISTORY to report how it ended.
+    const t0 = Date.now();
+    const started = new Date(t0 - 5000).toISOString();
+    await query(`EXECUTE TASK CTRL.${TASK}`);
+    type H = { STATE: string; QUERY_ID: string; SCHEDULED_TIME: string; RETURN_VALUE: string | null; ERROR_MESSAGE: string | null };
+    for (let i = 0; i < 90; i++) {
+      await new Promise((res) => setTimeout(res, 2000));
+      const [h] = await query<H>(`SELECT state, query_id, TO_VARCHAR(scheduled_time, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') scheduled_time, return_value, error_message
+        FROM TABLE(INFORMATION_SCHEMA.TASK_HISTORY(TASK_NAME => ?, SCHEDULED_TIME_RANGE_START => ?::TIMESTAMP_LTZ, RESULT_LIMIT => 5))
+        ORDER BY scheduled_time DESC LIMIT 1`, [TASK, started]);
+      if (h && ['SUCCEEDED', 'FAILED', 'CANCELLED', 'SKIPPED'].includes(h.STATE)) {
+        if (h.STATE === 'SUCCEEDED') await query('ALTER DYNAMIC TABLE EXCEPTION_ROLLUP REFRESH');
+        return { ...live(Date.now() - t0), task: `CTRL.${TASK}`, state: h.STATE, queryId: h.QUERY_ID, scheduledFor: h.SCHEDULED_TIME,
+          durationMs: Date.now() - t0, result: h.RETURN_VALUE ?? undefined, error: h.ERROR_MESSAGE ?? undefined };
+      }
+    }
+    throw new Error('The task is still running after 3 minutes; check TASK_HISTORY in Snowsight.');
   },
 };

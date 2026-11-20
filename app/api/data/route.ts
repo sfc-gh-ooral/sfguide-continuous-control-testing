@@ -6,7 +6,7 @@ import { isSnowflakeConfigured } from '@/lib/snowflake';
 // One entry point for every screen. Uses Snowflake when .env.local is configured and the user hasn't
 // switched to Sample (x-cct-mode: sample); otherwise the bundled synthetic data. Live failures are
 // returned as errors, never silently replaced with sample data.
-const OPS = new Set<keyof CctData>(['coverage', 'queue', 'exception', 'explain', 'dispose', 'backlog', 'triage', 'decide', 'evidence', 'recount']);
+const OPS = new Set<keyof CctData>(['coverage', 'queue', 'exception', 'explain', 'dispose', 'backlog', 'triage', 'decide', 'evidence', 'recount', 'runTests']);
 
 export async function POST(request: Request) {
   const { op, args } = await request.json();

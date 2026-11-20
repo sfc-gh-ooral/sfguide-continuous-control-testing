@@ -58,4 +58,5 @@ export interface EvidenceRun extends RunRow {
   dispositions: { disposition: string; count: number; reviewers: string[] }[];
 }
 export interface Evidence extends Provenance { periods: string[]; period: string; runs: EvidenceRun[]; feed: FeedQualityRow[] }
+export interface TaskRun extends Provenance { task: string; state: string; queryId?: string; scheduledFor: string; durationMs: number; result?: string; error?: string }
 export interface Recount extends Provenance { table: string; asOf: string; rows: number; queryId?: string; sql: string }

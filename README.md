@@ -2,7 +2,7 @@
 
 Help risk and audit teams test entire populations instead of samples, triage exceptions with an AI assistant, and keep evidence for every run.
 
-This is a Snowflake example on **synthetic data**: **Tallyward**, a fictional control-assurance app for the fictional bank Northwind Financial. It is a Next.js app with a no-account mode and a live mode backed by Tasks, Dynamic Tables, data metric functions, AI_COMPLETE, AI_CLASSIFY, AI_SIMILARITY, and a Cortex Agent (Cortex Analyst, Cortex Search, and custom stored-procedure tools).
+This is a Snowflake example on **synthetic data**: **Tallyward**, a fictional control-assurance app for the fictional bank Northwind Financial. It is a Next.js app with a no-account mode and a live mode backed by Tasks, Dynamic Tables, data metric functions, AI_COMPLETE, AI_CLASSIFY, AI_SIMILARITY, and a Cortex Agent whose tools run Cortex Analyst on a semantic view, Cortex Search, and custom stored procedures.
 
 **[Try the hosted example](https://sfc-gh-ooral.github.io/sfguide-continuous-control-testing/try/)** · **[Guide](https://sfc-gh-ooral.github.io/sfguide-continuous-control-testing/)**
 
@@ -14,10 +14,10 @@ The look and brand are described in [docs/DESIGN.md](docs/DESIGN.md).
 
 | Screen | What you see | Snowflake capability (live mode) |
 | --- | --- | --- |
-| Control coverage | 25 controls: 8 tested monthly on the full population, 17 still sampled quarterly. Records tested vs. the old sample size, exceptions by month, trend per control, pass or open count | `RUN_CONTROL_TESTS` procedure, monthly task `MONTHLY_CONTROL_TESTS`, `EXCEPTION_ROLLUP` Dynamic Table |
-| Exception queue | Open exceptions grouped by root-cause cluster with severity and age, a feed-anomaly badge, and bulk disposition (True issue / Data issue / Accepted risk) that requires a note | Custom data metric function `APPROVER_2_NULL_PCT` per feed batch; dispositions written to `EXCEPTIONS` and `DISPOSITION_LOG` |
+| Control coverage | A **Run tests now** button that re-tests last month on demand. 25 controls: 8 tested monthly on the full population, 17 still sampled quarterly. Records tested vs. the old sample size, exceptions by month, trend per control, pass or open count | `RUN_CONTROL_TESTS` procedure; **Run tests now** runs the task `MONTHLY_CONTROL_TESTS` with `EXECUTE TASK` and reads `TASK_HISTORY`; `EXCEPTION_ROLLUP` Dynamic Table |
+| Exception queue | Open exceptions grouped by root-cause cluster with severity and age, a feed-anomaly badge, and bulk disposition (True issue / Data issue / Accepted risk) that requires a note | Custom data metric function `APPROVER_2_NULL_PCT` per feed batch, run by each test run; dispositions written to `EXCEPTIONS` and `DISPOSITION_LOG` |
 | Exception detail | The evidence row, feed quality by batch for that month, the control SQL and query ID, and an AI explanation with a suggested disposition | `AI_COMPLETE` over the evidence row, the control procedure, and the DMF results |
-| Triage assistant | The intake backlog. For each ticket: classify, find duplicates, then an agent investigates, drafts a response, and proposes a route. Each step has Approve / Edit / Reject | `AI_CLASSIFY`, `AI_SIMILARITY`, Cortex Agent `TRIAGE_AGENT`; decisions written to `TRIAGE_LOG` and `WORK_ITEMS` |
+| Triage assistant | The intake backlog. For each ticket: classify, find duplicates, then an agent investigates, drafts a response, and proposes a route. Each step has Approve / Edit / Reject | `AI_CLASSIFY`, `AI_SIMILARITY`, Cortex Agent `TRIAGE_AGENT` (via its tools: Cortex Analyst on `EXCEPTIONS_SV`, Cortex Search, and `CHECK_FEED_QUALITY`, which reads the scheduled DMF results and calls the custom DMF live); decisions written to `TRIAGE_LOG` and `WORK_ITEMS` |
 | Evidence pack | Per month: each run's query ID, records tested, exceptions, run time, run by, dispositions and reviewers, feed quality, and a recount as of the run. Export CSV or PDF | Query IDs from the runner, Time Travel (`AT(TIMESTAMP => …)`, 30-day retention on `SRC`) |
 | Period ribbon | Exceptions per tested month under the top bar on every screen; the August spike stands out and each month links to its queue | Same snapshot as coverage |
 | Sample / Live switch | Header switch that always shows the mode. Live with no connection shows setup steps instead of asking for credentials. AI steps show staged progress; in Sample mode a recorded answer arrives after 4–8 seconds | `/api/mode`; live calls report measured latency and never fall back to sample data |
@@ -39,7 +39,7 @@ These counts are planted stories on this synthetic data set. See [data/README.md
 | --- | --- |
 | No-account mode | Node.js **20.19+ or 22.12+** (required by Tailwind CSS 4) and npm. Nothing else. |
 | Live mode: edition | **Enterprise Edition or higher** (data metric functions; 30-day Time Travel) |
-| Live mode: features | Cortex AI functions (`AI_COMPLETE`, `AI_CLASSIFY`, `AI_SIMILARITY`), Cortex Agents, Cortex Analyst, Cortex Search, Dynamic Tables, Tasks, data metric functions, and Git repository clones. The default model is `claude-sonnet-4-5`; if it isn't in your region, enable [cross-region inference](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cross-region-inference) or set `SNOWFLAKE_COMPLETE_MODEL`. |
+| Live mode: features | Cortex AI functions (`AI_COMPLETE`, `AI_CLASSIFY`, `AI_SIMILARITY`), Cortex Agents (and, via the agent, Cortex Analyst, semantic views and Cortex Search), Dynamic Tables, Tasks, data metric functions, and Git repository clones. The default model is `claude-sonnet-4-5`; if it isn't in your region, enable [cross-region inference](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cross-region-inference) or set `SNOWFLAKE_COMPLETE_MODEL`. |
 | Live mode: role | `ACCOUNTADMIN` for the short account-level block in `sql/setup.sql` (role, warehouse, database, grants, API integration). Everything else runs as the least-privilege `CCT_DEMO_ROLE`. |
 | Preview features | None used. `AI_CLASSIFY` runs on text only (its document input is Preview and not used here). |
 | Tested | Next.js 16.3, Node 22.23, snowflake-sdk 3.4, on an Enterprise account in AWS US East 1 with cross-region inference, November 2026 |
@@ -59,8 +59,8 @@ To regenerate the source CSVs (same seed, same files): `npm run generate-data`.
 
 ## Live mode: deploy to your account
 
-1. **Run the setup.** Open a Snowsight SQL worksheet, paste [`sql/setup.sql`](sql/setup.sql), and run all. It took about 4 minutes on XSMALL in our test, most of it backfilling ten months of test runs. The script loads the synthetic CSVs straight from this public repository through a Git repository clone, so there's no upload step.
-2. **Create a key pair** for the user that ran setup (setup grants that user `CCT_DEMO_ROLE`). Keep the key outside the repository:
+1. **Run the setup.** Open a Snowsight SQL worksheet, paste [`sql/setup.sql`](sql/setup.sql), and run all. It took about 5 minutes on XSMALL in our test, most of it backfilling ten months of test runs. The script loads the synthetic CSVs straight from this public repository through a Git repository clone, so there's no upload step.
+2. **Create a key pair** for the user that ran setup. Live mode uses key-pair authentication only; setup grants that user `CCT_DEMO_ROLE`. Keep the key outside the repository:
 
    ```bash
    mkdir -p ~/.snowflake/keys
@@ -75,7 +75,7 @@ To regenerate the source CSVs (same seed, same files): `npm run generate-data`.
 
 3. **Configure the app.** Copy `.env.example` to `.env.local` and fill in your account identifier (`<org>-<account>`), user, and key path.
 4. **Run it.** Run `npm run dev`. Each screen shows a **Live · CCT_DEMO_ROLE · <ms>** badge.
-5. **Optional: turn on the schedule.** `ALTER TASK CONTROL_TESTING_DEMO.CTRL.MONTHLY_CONTROL_TESTS RESUME;` runs the tests at 06:00 UTC on the 2nd of each month for the month that just ended.
+5. **Run the task.** On Coverage, **Run tests now** runs `MONTHLY_CONTROL_TESTS` once with `EXECUTE TASK` (about 30 seconds in our test) and reloads the screen. To run it on its schedule instead, `ALTER TASK CONTROL_TESTING_DEMO.CTRL.MONTHLY_CONTROL_TESTS RESUME;` runs the tests at 06:00 UTC on the 2nd of each month for the month that just ended.
 
 The app uses one pooled connection as `CCT_DEMO_ROLE`, runs `USE SECONDARY ROLES NONE`, and uses bind variables for every statement.
 
@@ -93,7 +93,7 @@ To refresh the no-account snapshot from your live account: `node scripts/export-
 | Control tables (CTRL) | `CONTROLS`, `CONTROL_OWNERS`, `TEST_RUNS`, `EXCEPTIONS`, `FEED_QUALITY`, `WORK_ITEMS`, `DISPOSITION_LOG`, `TRIAGE_LOG`, `CONTROL_PROCEDURES` | Control SQL lives in `CONTROLS` |
 | Data metric function | `APPROVER_2_NULL_PCT` | Percent of wires over $250,000 with no second approver |
 | Procedures | `RUN_CONTROL_TESTS`, `CHECK_FEED_QUALITY`, `LOOKUP_TABLE_METADATA`, `DRAFT_WORK_ITEM` | The last three are agent tools; `DRAFT_WORK_ITEM` only creates drafts and is not attached to the agent by default |
-| Task | `MONTHLY_CONTROL_TESTS` | Created suspended |
+| Task | `MONTHLY_CONTROL_TESTS` | Created suspended; the app runs it on demand with `EXECUTE TASK` |
 | Dynamic Table | `EXCEPTION_ROLLUP` | `TARGET_LAG = '1 hour'`; refreshed after each disposition |
 | Semantic view | `EXCEPTIONS_SV` | For Cortex Analyst |
 | Cortex Search | `CONTROL_PROCEDURES_SEARCH` | Control procedures and disposition standards |
@@ -104,7 +104,7 @@ To refresh the no-account snapshot from your live account: `node scripts/export-
 
 ### Expected cost and time
 
-- **Setup:** about 4.5 minutes on XSMALL in our test (270 seconds end to end, November 20, 2026).
+- **Setup:** about 5 minutes on XSMALL in our test (294 seconds end to end, November 20, 2026).
 - **Warehouse:** one setup run plus a Live session through every screen and AI step used **0.32 credits** on XSMALL (`WAREHOUSE_METERING_HISTORY`, November 20, 2026). AI_COMPLETE tokens for that session came to about 0.01 credits in `CORTEX_AISQL_USAGE_HISTORY`.
 - **AI credits:** Cortex AI functions, Cortex Agents, and Cortex Search are billed separately by tokens. Check `SNOWFLAKE.ACCOUNT_USAGE.CORTEX_FUNCTIONS_USAGE_HISTORY` and `CORTEX_AGENT_USAGE_HISTORY`, which can lag by up to a few hours. See the [Service Consumption Table](https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf) for rates.
 - **Measured latency** in our test on XSMALL, from the app server:
@@ -113,11 +113,26 @@ To refresh the no-account snapshot from your live account: `node scripts/export-
   - Classify: 0.8–1.6 s. Duplicates: 1–2.8 s.
   - Agent triage: 11.6–21.5 s.
   - Time Travel recount: 0.1–0.8 s.
+  - Run tests now (`EXECUTE TASK` until `TASK_HISTORY` reports it ended): 27–36 s.
+  - Feed-quality tool (`CHECK_FEED_QUALITY`, called alone): 1.8–4.8 s.
 
   Yours will differ. The app shows the measured time on each live response.
 
+## Self-review checklist
+
+Before you show this to anyone or adapt it, check:
+
+- [ ] `.env.local` and your `.p8` key are outside git (`git status` shows neither).
+- [ ] Every screen shows **Live · CCT_DEMO_ROLE** in Live mode, and **Sample AI response** on every AI output in Sample mode.
+- [ ] **Run tests now** ends with `succeeded` and a query ID, and the new run appears in the evidence pack.
+- [ ] The triage agent's tool list for WI-0101 includes `check_feed_quality`, and its answer cites the feed-batch null rates.
+- [ ] Any data you load is synthetic or approved for this use; AI suggestions still go through Approve / Edit / Reject.
+- [ ] After you finish, `sql/cleanup.sql` returns no rows from its SHOW commands.
+
 ## Known limitations
 
+- **Scheduled DMFs report a few minutes after a load.** `TRIGGER_ON_CHANGES` runs them after DML, so setup attaches them before loading `WIRE_PAYMENTS`; until the first results arrive the feed-quality tool says "no results yet".
+- **Run tests now re-tests the month that just ended** and adds a new run; earlier runs and their dispositions stay in the evidence pack, and the new run's exceptions start undisposed.
 - **Ad-hoc DMF calls don't accept a filtered subquery.** `SELECT NULL_COUNT(SELECT … WHERE …)` failed in our test, so the runner copies each feed batch into a temporary table and calls the custom DMF on that.
 - **Eight automated controls.** The other 17 are listed as sampled to show coverage; adding one means adding a population and an exception query to `CONTROLS`.
 - **Access controls are point-in-time.** AC-01 and AC-02 re-find the same open entitlements each month, so the queue shows only the latest month for them.
