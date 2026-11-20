@@ -105,7 +105,7 @@ To refresh the no-account snapshot from your live account: `node scripts/export-
 ### Expected cost and time
 
 - **Setup:** about 4.5 minutes on XSMALL in our test (270 seconds end to end, November 20, 2026).
-- **Warehouse:** our whole build (setup run three times, the sample export, and live sessions through every screen and AI step) used **0.88 credits** on XSMALL in `WAREHOUSE_METERING_HISTORY`. One setup plus a session costs less.
+- **Warehouse:** one setup run plus a Live session through every screen and AI step used **0.32 credits** on XSMALL (`WAREHOUSE_METERING_HISTORY`, November 20, 2026). AI_COMPLETE tokens for that session came to about 0.01 credits in `CORTEX_AISQL_USAGE_HISTORY`.
 - **AI credits:** Cortex AI functions, Cortex Agents, and Cortex Search are billed separately by tokens. Check `SNOWFLAKE.ACCOUNT_USAGE.CORTEX_FUNCTIONS_USAGE_HISTORY` and `CORTEX_AGENT_USAGE_HISTORY`, which can lag by up to a few hours. See the [Service Consumption Table](https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf) for rates.
 - **Measured latency** in our test on XSMALL, from the app server:
   - Coverage, queue, evidence: 0.4–6 s (the first call includes connecting).
