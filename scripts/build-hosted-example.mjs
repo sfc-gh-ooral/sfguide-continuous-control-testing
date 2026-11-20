@@ -20,5 +20,6 @@ try {
 
 rmSync("docs/try", { recursive: true, force: true });
 cpSync("out", "docs/try", { recursive: true });
-writeFileSync("docs/try/.nojekyll", "");
+// GitHub Pages runs Jekyll from docs/, which drops folders starting with "_" (such as _next).
+writeFileSync("docs/.nojekyll", "");
 console.log("Hosted example written to docs/try/");
