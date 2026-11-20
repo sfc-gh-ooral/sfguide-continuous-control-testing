@@ -66,7 +66,9 @@ USE SCHEMA SRC;
 CREATE OR REPLACE GIT REPOSITORY CCT_REPO
   API_INTEGRATION = CCT_GIT_API
   ORIGIN = 'https://github.com/sfc-gh-ooral/sfguide-continuous-control-testing.git';
-CREATE OR REPLACE FILE FORMAT CCT_CSV TYPE = CSV PARSE_HEADER = TRUE FIELD_OPTIONALLY_ENCLOSED_BY = '"' EMPTY_FIELD_AS_NULL = TRUE;
+CREATE STAGE IF NOT EXISTS CCT_DATA COMMENT = 'Synthetic CSVs copied from the repository';
+COPY FILES INTO @CCT_DATA FROM @CCT_REPO/branches/main/data/;
+CREATE OR REPLACE FILE FORMAT CCT_CSV TYPE = CSV PARSE_HEADER = TRUE FIELD_OPTIONALLY_ENCLOSED_BY = '"' EMPTY_FIELD_AS_NULL = TRUE ERROR_ON_COLUMN_COUNT_MISMATCH = FALSE;
 
 CREATE OR REPLACE TABLE TERMINATIONS (employee_id VARCHAR, employee_name VARCHAR, department VARCHAR, term_date DATE);
 CREATE OR REPLACE TABLE USER_ACCESS (access_id VARCHAR, employee_id VARCHAR, system_name VARCHAR, entitlement VARCHAR,
@@ -79,11 +81,11 @@ CREATE OR REPLACE TABLE LOAN_FILES (loan_id VARCHAR, officer_id VARCHAR, product
 CREATE OR REPLACE TABLE CHANGE_TICKETS (change_id VARCHAR, system_name VARCHAR, change_type VARCHAR, requested_by VARCHAR,
   approved_by VARCHAR, approved_ts TIMESTAMP_NTZ, deployed_ts TIMESTAMP_NTZ, post_review_date DATE);
 
-COPY INTO TERMINATIONS   FROM @CCT_REPO/branches/main/data/terminations.csv   FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
-COPY INTO USER_ACCESS    FROM @CCT_REPO/branches/main/data/user_access.csv    FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
-COPY INTO WIRE_PAYMENTS  FROM @CCT_REPO/branches/main/data/wire_payments.csv  FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
-COPY INTO LOAN_FILES     FROM @CCT_REPO/branches/main/data/loan_files.csv     FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
-COPY INTO CHANGE_TICKETS FROM @CCT_REPO/branches/main/data/change_tickets.csv FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+COPY INTO TERMINATIONS   FROM @CCT_DATA/terminations.csv   FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+COPY INTO USER_ACCESS    FROM @CCT_DATA/user_access.csv    FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+COPY INTO WIRE_PAYMENTS  FROM @CCT_DATA/wire_payments.csv  FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+COPY INTO LOAN_FILES     FROM @CCT_DATA/loan_files.csv     FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+COPY INTO CHANGE_TICKETS FROM @CCT_DATA/change_tickets.csv FILE_FORMAT = CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
 
 -- Scheduled data metric functions on the wire feed: Snowflake records the null count of the
 -- second approver after every load (results in SNOWFLAKE.LOCAL.DATA_QUALITY_MONITORING_RESULTS).
@@ -99,9 +101,9 @@ CREATE OR REPLACE TABLE CONTROLS (control_id VARCHAR, control_name VARCHAR, doma
   population_sql VARCHAR, exception_sql VARCHAR, source_table VARCHAR);
 CREATE OR REPLACE TABLE WORK_ITEMS (work_item_id VARCHAR, title VARCHAR, description VARCHAR, status VARCHAR, assignee VARCHAR,
   created_ts TIMESTAMP_NTZ, source VARCHAR, routed_team VARCHAR, response VARCHAR, updated_by VARCHAR, updated_ts TIMESTAMP_NTZ);
-COPY INTO CONTROL_OWNERS FROM @SRC.CCT_REPO/branches/main/data/control_owners.csv FILE_FORMAT = SRC.CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
-COPY INTO CONTROLS       FROM @SRC.CCT_REPO/branches/main/data/controls.csv       FILE_FORMAT = SRC.CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
-COPY INTO WORK_ITEMS     FROM @SRC.CCT_REPO/branches/main/data/work_items.csv     FILE_FORMAT = SRC.CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+COPY INTO CONTROL_OWNERS FROM @SRC.CCT_DATA/control_owners.csv FILE_FORMAT = SRC.CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+COPY INTO CONTROLS       FROM @SRC.CCT_DATA/controls.csv       FILE_FORMAT = SRC.CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+COPY INTO WORK_ITEMS     FROM @SRC.CCT_DATA/work_items.csv     FILE_FORMAT = SRC.CCT_CSV MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
 
 -- Test logic for the automated controls. Each exception query takes the period start and end
 -- as bind variables and returns: record_id, cluster_key (root-cause grouping), severity, detail.
@@ -110,7 +112,7 @@ UPDATE CONTROLS c SET population_sql = t.pop, exception_sql = t.exc, source_tabl
 $$SELECT COUNT(*) FROM SRC.USER_ACCESS a JOIN SRC.TERMINATIONS t USING (employee_id)
 WHERE ?::DATE IS NOT NULL AND t.term_date <= DATEADD(day, -30, ?::DATE)$$ pop,
 $$SELECT a.access_id, a.system_name, IFF(a.is_privileged OR a.system_name = 'Wire Platform', 'High', 'Medium'),
-  OBJECT_CONSTRUCT('employee_id', a.employee_id, 'employee_name', t.employee_name, 'department', t.department,
+  OBJECT_CONSTRUCT_KEEP_NULL('employee_id', a.employee_id, 'employee_name', t.employee_name, 'department', t.department,
     'system', a.system_name, 'entitlement', a.entitlement, 'term_date', t.term_date,
     'days_since_termination', DATEDIFF(day, t.term_date, p.e))
 FROM SRC.USER_ACCESS a JOIN SRC.TERMINATIONS t USING (employee_id), (SELECT ?::DATE s, ?::DATE e) p
@@ -118,7 +120,7 @@ WHERE t.term_date <= DATEADD(day, -30, p.e) AND (a.revoked_date IS NULL OR a.rev
   UNION ALL SELECT 'AC-02', 'SRC.USER_ACCESS',
 $$SELECT COUNT(*) FROM SRC.USER_ACCESS WHERE ?::DATE IS NOT NULL AND is_privileged AND granted_date <= ?::DATE$$,
 $$SELECT a.access_id, a.system_name, 'Medium',
-  OBJECT_CONSTRUCT('employee_id', a.employee_id, 'entitlement', a.entitlement, 'last_certified_date', a.last_certified_date,
+  OBJECT_CONSTRUCT_KEEP_NULL('employee_id', a.employee_id, 'entitlement', a.entitlement, 'last_certified_date', a.last_certified_date,
     'days_since_certification', DATEDIFF(day, a.last_certified_date, p.e))
 FROM SRC.USER_ACCESS a, (SELECT ?::DATE s, ?::DATE e) p
 WHERE a.is_privileged AND a.granted_date <= p.e AND (a.revoked_date IS NULL OR a.revoked_date > p.e)
@@ -126,13 +128,13 @@ WHERE a.is_privileged AND a.granted_date <= p.e AND (a.revoked_date IS NULL OR a
   UNION ALL SELECT 'PY-01', 'SRC.WIRE_PAYMENTS',
 $$SELECT COUNT(*) FROM SRC.WIRE_PAYMENTS WHERE amount_usd > 250000 AND value_date BETWEEN ? AND ?$$,
 $$SELECT w.wire_id, w.feed_batch_id, IFF(w.amount_usd > 1000000, 'High', 'Medium'),
-  OBJECT_CONSTRUCT('amount_usd', w.amount_usd, 'beneficiary', w.beneficiary, 'value_date', w.value_date,
+  OBJECT_CONSTRUCT_KEEP_NULL('amount_usd', w.amount_usd, 'beneficiary', w.beneficiary, 'value_date', w.value_date,
     'initiated_by', w.initiated_by, 'approver_1', w.approver_1, 'approver_2', w.approver_2, 'feed_batch_id', w.feed_batch_id)
 FROM SRC.WIRE_PAYMENTS w WHERE w.amount_usd > 250000 AND w.value_date BETWEEN ? AND ? AND w.approver_2 IS NULL$$
   UNION ALL SELECT 'PY-02', 'SRC.WIRE_PAYMENTS',
 $$SELECT COUNT(*) FROM SRC.WIRE_PAYMENTS WHERE amount_usd > initiator_limit_usd AND value_date BETWEEN ? AND ?$$,
 $$SELECT w.wire_id, 'Self-approval by ' || w.initiated_by, 'High',
-  OBJECT_CONSTRUCT('amount_usd', w.amount_usd, 'initiator_limit_usd', w.initiator_limit_usd, 'beneficiary', w.beneficiary,
+  OBJECT_CONSTRUCT_KEEP_NULL('amount_usd', w.amount_usd, 'initiator_limit_usd', w.initiator_limit_usd, 'beneficiary', w.beneficiary,
     'value_date', w.value_date, 'initiated_by', w.initiated_by, 'approver_1', w.approver_1, 'feed_batch_id', w.feed_batch_id)
 FROM SRC.WIRE_PAYMENTS w WHERE w.amount_usd > w.initiator_limit_usd AND w.value_date BETWEEN ? AND ?
   AND (w.approver_1 = w.initiated_by OR w.approver_2 = w.initiated_by)$$
@@ -140,27 +142,27 @@ FROM SRC.WIRE_PAYMENTS w WHERE w.amount_usd > w.initiator_limit_usd AND w.value_
 $$SELECT COUNT(*) FROM SRC.LOAN_FILES WHERE funded_date BETWEEN ? AND ?$$,
 $$SELECT l.loan_id, IFF(NOT l.has_signed_note, 'Missing signed note', IFF(NOT l.has_appraisal, 'Missing appraisal', 'Missing income verification')),
   IFF(NOT l.has_signed_note, 'High', 'Medium'),
-  OBJECT_CONSTRUCT('product', l.product, 'principal_usd', l.principal_usd, 'funded_date', l.funded_date, 'officer_id', l.officer_id,
+  OBJECT_CONSTRUCT_KEEP_NULL('product', l.product, 'principal_usd', l.principal_usd, 'funded_date', l.funded_date, 'officer_id', l.officer_id,
     'has_appraisal', l.has_appraisal, 'has_income_verification', l.has_income_verification, 'has_signed_note', l.has_signed_note)
 FROM SRC.LOAN_FILES l WHERE l.funded_date BETWEEN ? AND ?
   AND NOT (l.has_appraisal AND l.has_income_verification AND l.has_signed_note)$$
   UNION ALL SELECT 'LN-02', 'SRC.LOAN_FILES',
 $$SELECT COUNT(*) FROM SRC.LOAN_FILES WHERE rate_pct < rate_floor_pct AND funded_date BETWEEN ? AND ?$$,
 $$SELECT l.loan_id, l.product, IFF(l.rate_floor_pct - l.rate_pct > 0.5, 'High', 'Medium'),
-  OBJECT_CONSTRUCT('product', l.product, 'principal_usd', l.principal_usd, 'rate_pct', l.rate_pct, 'rate_floor_pct', l.rate_floor_pct,
+  OBJECT_CONSTRUCT_KEEP_NULL('product', l.product, 'principal_usd', l.principal_usd, 'rate_pct', l.rate_pct, 'rate_floor_pct', l.rate_floor_pct,
     'officer_id', l.officer_id, 'funded_date', l.funded_date)
 FROM SRC.LOAN_FILES l WHERE l.rate_pct < l.rate_floor_pct AND NOT l.rate_exception_approved AND l.funded_date BETWEEN ? AND ?$$
   UNION ALL SELECT 'CM-01', 'SRC.CHANGE_TICKETS',
 $$SELECT COUNT(*) FROM SRC.CHANGE_TICKETS WHERE change_type = 'Standard' AND deployed_ts::DATE BETWEEN ? AND ?$$,
 $$SELECT c.change_id, c.system_name, IFF(c.system_name IN ('Wire Platform', 'Core Banking'), 'High', 'Medium'),
-  OBJECT_CONSTRUCT('system', c.system_name, 'requested_by', c.requested_by, 'approved_by', c.approved_by,
+  OBJECT_CONSTRUCT_KEEP_NULL('system', c.system_name, 'requested_by', c.requested_by, 'approved_by', c.approved_by,
     'approved_ts', c.approved_ts, 'deployed_ts', c.deployed_ts, 'hours_after_deploy', DATEDIFF(hour, c.deployed_ts, c.approved_ts))
 FROM SRC.CHANGE_TICKETS c WHERE c.change_type = 'Standard' AND c.deployed_ts::DATE BETWEEN ? AND ?
   AND (c.approved_ts IS NULL OR c.approved_ts > c.deployed_ts)$$
   UNION ALL SELECT 'CM-02', 'SRC.CHANGE_TICKETS',
 $$SELECT COUNT(*) FROM SRC.CHANGE_TICKETS WHERE change_type = 'Emergency' AND deployed_ts::DATE BETWEEN ? AND ?$$,
 $$SELECT c.change_id, c.system_name, 'Medium',
-  OBJECT_CONSTRUCT('system', c.system_name, 'requested_by', c.requested_by, 'deployed_ts', c.deployed_ts,
+  OBJECT_CONSTRUCT_KEEP_NULL('system', c.system_name, 'requested_by', c.requested_by, 'deployed_ts', c.deployed_ts,
     'post_review_date', c.post_review_date)
 FROM SRC.CHANGE_TICKETS c WHERE c.change_type = 'Emergency' AND c.deployed_ts::DATE BETWEEN ? AND ?
   AND (c.post_review_date IS NULL OR c.post_review_date > DATEADD(day, 7, c.deployed_ts::DATE))$$
@@ -178,7 +180,13 @@ CREATE OR REPLACE TABLE DISPOSITION_LOG (exception_id VARCHAR, disposition VARCH
 CREATE OR REPLACE TABLE TRIAGE_LOG (work_item_id VARCHAR, step VARCHAR, ai_output VARCHAR, decision VARCHAR, final_output VARCHAR,
   actor VARCHAR, ts TIMESTAMP_LTZ);
 
--- 2d. The test runner -------------------------------------------------------------
+-- 2d. Custom data metric function for the wire feed ------------------------------------
+CREATE OR REPLACE DATA METRIC FUNCTION APPROVER_2_NULL_PCT(t TABLE(amount_usd NUMBER, approver_2 VARCHAR))
+  RETURNS NUMBER
+  COMMENT = 'Percent of wires over 250,000 USD that arrived with no second approver'
+  AS 'SELECT ROUND(100 * COUNT_IF(approver_2 IS NULL) / NULLIF(COUNT(*), 0), 2) FROM t WHERE amount_usd > 250000';
+
+-- 2e. The test runner -------------------------------------------------------------
 -- Runs every automated control over the full population for one month, records the query ID of
 -- each test (for evidence), and measures the wire feed with system DMFs so a data problem can be
 -- told apart from a control failure.
@@ -195,6 +203,7 @@ DECLARE
   exc INT;
   qid VARCHAR;
   stmt VARCHAR;
+  cid VARCHAR;
   done INT DEFAULT 0;
   c1 CURSOR FOR SELECT control_id, population_sql, exception_sql FROM CTRL.CONTROLS WHERE exception_sql IS NOT NULL ORDER BY control_id;
   nulls FLOAT;
@@ -202,36 +211,42 @@ DECLARE
   base FLOAT;
 BEGIN
   FOR c IN c1 DO
-    run_id := c.control_id || '-' || TO_VARCHAR(:PERIOD_START, 'YYYYMM') || '-' || TO_VARCHAR(CURRENT_TIMESTAMP(), 'YYYYMMDDHH24MISS');
+    cid := c.control_id;
+    run_id := cid || '-' || TO_VARCHAR(:PERIOD_START, 'YYYYMM') || '-' || TO_VARCHAR(CURRENT_TIMESTAMP(), 'YYYYMMDDHH24MISS');
     stmt := c.population_sql;
     LET rs1 RESULTSET := (EXECUTE IMMEDIATE :stmt USING (PERIOD_START, p_end));
     LET cur1 CURSOR FOR rs1;
     OPEN cur1; FETCH cur1 INTO pop; CLOSE cur1;
     stmt := 'INSERT INTO CTRL.EXCEPTIONS (exception_id, run_id, control_id, period_start, record_id, cluster_key, severity, detail) ' ||
-            'SELECT ''' || :run_id || '-'' || ROW_NUMBER() OVER (ORDER BY 1), ''' || :run_id || ''', ''' || c.control_id || ''', ?::DATE, x.* FROM (' ||
+            'SELECT ''' || :run_id || '-'' || ROW_NUMBER() OVER (ORDER BY 1), ''' || :run_id || ''', ''' || cid || ''', ?::DATE, x.* FROM (' ||
             c.exception_sql || ') x';
     EXECUTE IMMEDIATE :stmt USING (PERIOD_START, PERIOD_START, p_end);
     qid := LAST_QUERY_ID();
     SELECT COUNT(*) INTO :exc FROM CTRL.EXCEPTIONS WHERE run_id = :run_id;
-    INSERT INTO CTRL.TEST_RUNS VALUES (:run_id, :c.control_id, :PERIOD_START, :p_end, :pop, :exc, :qid, CURRENT_TIMESTAMP(), CURRENT_USER(), :TRIGGER_TYPE);
+    INSERT INTO CTRL.TEST_RUNS VALUES (:run_id, :cid, :PERIOD_START, :p_end, :pop, :exc, :qid, CURRENT_TIMESTAMP(), CURRENT_USER(), :TRIGGER_TYPE);
     done := done + 1;
   END FOR;
 
-  -- Feed quality: null rate of the second approver on wires that need one, per feed batch (system DMFs).
+  -- Feed quality: null rate of the second approver on wires that need one, per feed batch (custom DMF).
   DELETE FROM CTRL.FEED_QUALITY WHERE period_start = :PERIOD_START;
   LET rsb RESULTSET := (SELECT DISTINCT feed_batch_id FROM SRC.WIRE_PAYMENTS WHERE value_date BETWEEN :PERIOD_START AND :p_end ORDER BY 1);
   LET b1 CURSOR FOR rsb;
   FOR b IN b1 DO
     LET bid VARCHAR := b.feed_batch_id;
-    SELECT SNOWFLAKE.CORE.NULL_COUNT(SELECT approver_2 FROM SRC.WIRE_PAYMENTS WHERE feed_batch_id = :bid AND amount_usd > 250000) INTO :nulls;
-    SELECT SNOWFLAKE.CORE.ROW_COUNT(SELECT * FROM SRC.WIRE_PAYMENTS WHERE feed_batch_id = :bid AND amount_usd > 250000) INTO :rows_;
+    -- Snapshot the batch, then measure it with data metric functions called ad hoc.
+    CREATE OR REPLACE TEMPORARY TABLE CTRL.FEED_BATCH_SNAPSHOT AS
+      SELECT amount_usd, approver_2 FROM SRC.WIRE_PAYMENTS WHERE feed_batch_id = :bid;
+    LET rsq RESULTSET := (SELECT CTRL.APPROVER_2_NULL_PCT(SELECT amount_usd, approver_2 FROM CTRL.FEED_BATCH_SNAPSHOT) AS v);
+    LET curq CURSOR FOR rsq;
+    OPEN curq; FETCH curq INTO nulls; CLOSE curq;
+    SELECT COUNT_IF(amount_usd > 250000) INTO :rows_ FROM CTRL.FEED_BATCH_SNAPSHOT;
     SELECT COALESCE(AVG(metric_value), 0) INTO :base FROM CTRL.FEED_QUALITY
       WHERE source_table = 'SRC.WIRE_PAYMENTS' AND metric = 'APPROVER_2_NULL_PCT' AND period_start < :PERIOD_START AND NOT is_anomaly;
     INSERT INTO CTRL.FEED_QUALITY SELECT :PERIOD_START, 'SRC.WIRE_PAYMENTS', :bid, 'APPROVER_2_NULL_PCT',
-      ROUND(100 * :nulls / NULLIF(:rows_, 0), 2), ROUND(:base, 2), (100 * :nulls / NULLIF(:rows_, 0)) > GREATEST(10, 5 * :base), CURRENT_TIMESTAMP();
+      ROUND(:nulls, 2), ROUND(:base, 2), :nulls > GREATEST(10, 5 * :base), CURRENT_TIMESTAMP();
     INSERT INTO CTRL.FEED_QUALITY SELECT :PERIOD_START, 'SRC.WIRE_PAYMENTS', :bid, 'ROW_COUNT', :rows_, NULL, FALSE, CURRENT_TIMESTAMP();
   END FOR;
-  RETURN OBJECT_CONSTRUCT('period_start', :PERIOD_START, 'controls_run', :done);
+  RETURN OBJECT_CONSTRUCT_KEEP_NULL('period_start', :PERIOD_START, 'controls_run', :done);
 END;
 $$;
 
@@ -255,21 +270,24 @@ CREATE OR REPLACE TASK MONTHLY_CONTROL_TESTS
   COMMENT = 'Continuous Control Testing example: full-population monthly run'
   AS CALL CTRL.RUN_CONTROL_TESTS(DATE_TRUNC(month, DATEADD(month, -1, CURRENT_DATE())), 'Scheduled');
 
--- 2e. Exception rollup (Dynamic Table) ----------------------------------------------
+-- 2f. Exception rollup (Dynamic Table) ----------------------------------------------
 CREATE OR REPLACE DYNAMIC TABLE EXCEPTION_ROLLUP
   TARGET_LAG = '1 hour' WAREHOUSE = CCT_WH
   COMMENT = 'Latest run per control and month, with exception rate and open count'
   AS
+  WITH latest AS (
+    SELECT * FROM TEST_RUNS
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY control_id, period_start ORDER BY run_ts DESC) = 1
+  )
   SELECT r.control_id, r.period_start, r.run_id, r.population_count, r.exception_count,
          ROUND(100 * r.exception_count / NULLIF(r.population_count, 0), 3) AS exception_rate_pct,
          COUNT_IF(e.exception_id IS NOT NULL AND e.disposition IS NULL) AS open_exceptions,
          COUNT_IF(e.severity = 'High') AS high_severity
-  FROM TEST_RUNS r
+  FROM latest r
   LEFT JOIN EXCEPTIONS e ON e.run_id = r.run_id
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY r.control_id, r.period_start ORDER BY r.run_ts DESC) = 1
   GROUP BY ALL;
 
--- 2f. Control procedures for Cortex Search -------------------------------------------
+-- 2g. Control procedures for Cortex Search -------------------------------------------
 CREATE OR REPLACE TABLE CONTROL_PROCEDURES (doc_id VARCHAR, control_id VARCHAR, title VARCHAR, body VARCHAR);
 INSERT INTO CONTROL_PROCEDURES VALUES
 ('P-AC-01','AC-01','Terminated user access removal','Identity & Access Management removes all entitlements within 30 days of an HR termination. Exceptions are routed to IAM (Avery Okafor). A true issue requires revoking the entitlement and reviewing activity since the termination date. Wire Platform and privileged entitlements are High severity.'),
@@ -291,7 +309,7 @@ CREATE OR REPLACE CORTEX SEARCH SERVICE CONTROL_PROCEDURES_SEARCH
   COMMENT = 'Control test procedures and disposition standards'
   AS SELECT doc_id, control_id, title, body FROM CONTROL_PROCEDURES;
 
--- 2g. Semantic view over the results (Cortex Analyst) ---------------------------------
+-- 2h. Semantic view over the results (Cortex Analyst) ---------------------------------
 CREATE OR REPLACE SEMANTIC VIEW EXCEPTIONS_SV
   TABLES (
     ctl AS CTRL.CONTROLS PRIMARY KEY (control_id) COMMENT = 'Control library',
@@ -332,7 +350,7 @@ CREATE OR REPLACE SEMANTIC VIEW EXCEPTIONS_SV
   )
   COMMENT = 'Continuous Control Testing: test runs, exceptions, and feed quality';
 
--- 2h. Custom tools for the agent ------------------------------------------------------
+-- 2i. Custom tools for the agent ------------------------------------------------------
 -- Data exploration: list the columns of a source or control table (read only).
 CREATE OR REPLACE PROCEDURE LOOKUP_TABLE_METADATA(TABLE_NAME VARCHAR)
 RETURNS VARCHAR
@@ -385,7 +403,7 @@ BEGIN
 END;
 $$;
 
--- 2i. The triage agent ---------------------------------------------------------------
+-- 2j. The triage agent ---------------------------------------------------------------
 CREATE OR REPLACE AGENT TRIAGE_AGENT
   COMMENT = 'Continuous Control Testing: backlog triage orchestrator'
   FROM SPECIFICATION
