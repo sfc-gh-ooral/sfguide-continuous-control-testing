@@ -1,0 +1,26 @@
+control_id,control_name,domain,frequency,owner_id,test_method,prior_sample_size,last_sample_exceptions
+AC-01,Terminated user access removed within 30 days,Access,Monthly,OWN01,Automated (full population),25,0
+AC-02,Privileged access recertified every 90 days,Access,Monthly,OWN01,Automated (full population),25,0
+PY-01,"Dual approval on wires over $250,000",Payments,Monthly,OWN02,Automated (full population),40,0
+PY-02,Over-limit wires approved by someone other than the initiator,Payments,Monthly,OWN02,Automated (full population),40,0
+LN-01,Required documents present before loan funding,Lending,Monthly,OWN03,Automated (full population),30,0
+LN-02,Rate below floor has an approved rate exception,Lending,Monthly,OWN03,Automated (full population),30,0
+CM-01,Production changes approved before deployment,Change management,Monthly,OWN04,Automated (full population),25,0
+CM-02,Emergency changes reviewed within 5 business days,Change management,Monthly,OWN04,Automated (full population),15,0
+AC-03,Shared and generic accounts disabled,Access,Quarterly,OWN01,Manual sample,25,1
+AC-04,Vendor access expires at contract end,Access,Quarterly,OWN01,Manual sample,25,0
+AC-05,Segregation of duties conflicts reviewed,Access,Quarterly,OWN01,Manual sample,25,0
+AC-06,Service account passwords rotated,Access,Quarterly,OWN01,Manual sample,40,0
+PY-03,Beneficiary changes call-back verified,Payments,Quarterly,OWN02,Manual sample,25,0
+PY-04,Sanctions screening on outbound wires,Payments,Quarterly,OWN02,Manual sample,15,0
+PY-05,ACH return rates monitored,Payments,Quarterly,OWN02,Manual sample,25,1
+PY-06,Payment limit changes approved,Payments,Quarterly,OWN02,Manual sample,15,0
+LN-03,Appraisal independence confirmed,Lending,Quarterly,OWN03,Manual sample,25,0
+LN-04,Adverse action notices sent on time,Lending,Quarterly,OWN03,Manual sample,25,0
+LN-05,Loan modifications approved by credit officer,Lending,Quarterly,OWN03,Manual sample,15,0
+CM-03,Code reviewed by a second engineer,Change management,Quarterly,OWN04,Manual sample,25,0
+CM-04,Production access for developers removed after release,Change management,Quarterly,OWN04,Manual sample,15,0
+CM-05,Backups restored and tested quarterly,Change management,Quarterly,OWN04,Manual sample,25,1
+FN-01,General ledger reconciliations signed off,Finance,Quarterly,OWN05,Manual sample,15,1
+FN-02,Manual journal entries approved,Finance,Quarterly,OWN05,Manual sample,15,0
+FN-03,Suspense accounts cleared within 30 days,Finance,Quarterly,OWN05,Manual sample,40,1

@@ -1,0 +1,21 @@
+work_item_id,title,description,status,assignee,created_ts,source
+WI-0101,Wire dual approval exceptions jumped in August,The PY-01 run for August shows a large jump in wires missing a second approver. Is this a control failure? Need answer before the risk committee.,Open,,2026-09-01 09:00:00,Intake
+WI-0102,PY-01 August exceptions look wrong,Seeing far more dual-approval breaks than usual for August. Can someone check the feed before we escalate?,Open,,2026-09-03 16:12:00,Intake
+WI-0103,Huge spike in missing second approvers (Aug),Payments ops says they approved everything. Exceptions on PY-01 went way up in August.,Open,,2026-09-05 23:24:00,Intake
+WI-0104,Terminated employee still has Wire Platform access,A former Treasury Ops employee terminated in June still has an active Wire Platform user entitlement.,Open,,2026-09-08 06:36:00,Intake
+WI-0105,Former employee access to Core Banking,AC-01 flagged an employee who left more than 30 days ago and still has Core Banking access. Please route to IAM.,Open,,2026-09-10 13:48:00,Intake
+WI-0106,Request: add rate exception approver list,Lending wants the list of approved rate exception approvers added to LN-02 evidence.,Open,,2026-09-12 21:00:00,Intake
+WI-0107,Change CHG deployed before approval,CM-01 shows a standard change deployed a day before approval. Need owner confirmation.,Open,,2026-09-15 04:12:00,Intake
+WI-0108,Question about AC-02 recertification window,Is the 90 day recertification window calendar or business days?,Open,,2026-09-17 11:24:00,Intake
+WI-0109,Same user initiated and approved an over-limit wire,PY-02 found a wire over the initiator limit where approver 1 is the initiator. Needs payments ops review.,Open,,2026-09-19 18:36:00,Intake
+WI-0110,Over-limit wire self-approved,Another self-approved over-limit wire on PY-02. Same pattern as last month.,Open,,2026-09-22 01:48:00,Intake
+WI-0111,Emergency change missing post-implementation review,CM-02: an emergency change has no post-implementation review after 5 business days.,Open,,2026-09-24 09:00:00,Intake
+WI-0112,Loan funded without income verification,LN-01 exception: commercial loan funded with no income verification on file.,Open,,2026-09-26 16:12:00,Intake
+WI-0113,Need evidence pack for Q3 exam,Examiners requested evidence for all automated access controls for Q3.,Open,,2026-09-28 23:24:00,Intake
+WI-0114,Which table holds wire approvals?,New analyst: where do I find the approver columns for wires? Want to write my own check.,Open,,2026-10-01 06:36:00,Intake
+WI-0115,Data feed for wires delayed,Wire feed batch 03 arrived late and looked incomplete in August.,Open,,2026-10-03 13:48:00,Intake
+WI-0116,Rate exception approved after funding,LN-02: rate exception approval timestamp is after the funding date for one loan.,In progress,Priya Chen,2026-10-05 21:00:00,Intake
+WI-0117,Privileged admin not recertified,AC-02 flagged a GL admin entitlement last certified more than 90 days ago.,In progress,Avery Okafor,2026-10-08 04:12:00,Intake
+WI-0118,Duplicate: terminated user still active in Core Banking,Same as the earlier ticket about a former employee with Core Banking access.,Open,,2026-10-10 11:24:00,Intake
+WI-0119,Can we test suspense accounts automatically?,FN-03 is still sampled quarterly. What data would we need to test the full population?,Open,,2026-10-12 18:36:00,Intake
+WI-0120,Change approval evidence missing approver,Evidence for CM-01 is missing the approver name for two changes.,Closed,Owen Brennan,2026-10-15 01:48:00,Intake
